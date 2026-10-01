@@ -14,7 +14,7 @@ export function locationPicker({ conn, bucket = '', prefix = '', onChange, lockC
   const note = h('p.hint.pk-note', { hidden: true });
   const el = h('div.picker', h('div.pk-row', connSel, bucketSel), crumbs, list, note);
   connSel.value = sel.conn;
-  let gen = 0;  // drop answers of requests that were overtaken
+  let gen = 0, initial = !!bucket;  // drop answers of requests that were overtaken
 
   const changed = () => onChange && onChange({ ...sel });
 
@@ -25,13 +25,15 @@ export function locationPicker({ conn, bucket = '', prefix = '', onChange, lockC
     try {
       const j = await get(`/api/s3/${encodeURIComponent(sel.conn)}/buckets`);
       if (mine !== gen) return;
-      fill(bucketSel, j.buckets.map(b => h('option', { value: b.name }, b.name)));
-      if (!j.buckets.some(b => b.name === sel.bucket)) { sel.bucket = j.buckets[0]?.name || ''; sel.prefix = ''; }
+      const names = j.buckets.map(b => b.name);
+      if (sel.bucket && !names.includes(sel.bucket) && initial) names.unshift(sel.bucket);  // a key that cannot list every bucket may still use this one
+      fill(bucketSel, names.map(n => h('option', { value: n }, n)));
+      if (!names.includes(sel.bucket)) { sel.bucket = names[0] || ''; sel.prefix = ''; }
       bucketSel.value = sel.bucket;
     } catch (e) {
       if (mine !== gen) return;
-      fill(bucketSel, h('option', { value: '' }, 'No buckets'));
-      sel.bucket = '';
+      if (initial && sel.bucket) fill(bucketSel, h('option', { value: sel.bucket }, sel.bucket));  // keep the library's own bucket
+      else { fill(bucketSel, h('option', { value: '' }, 'No buckets')); sel.bucket = ''; }
       note.textContent = e.message;
       note.hidden = false;
     }
@@ -62,7 +64,7 @@ export function locationPicker({ conn, bucket = '', prefix = '', onChange, lockC
   }
   function go(p) { sel.prefix = p; loadFolders(); }
 
-  connSel.addEventListener('change', () => { sel.conn = connSel.value; sel.bucket = ''; sel.prefix = ''; loadBuckets(); });
+  connSel.addEventListener('change', () => { initial = false; sel.conn = connSel.value; sel.bucket = ''; sel.prefix = ''; loadBuckets(); });
   bucketSel.addEventListener('change', () => { sel.bucket = bucketSel.value; sel.prefix = ''; loadFolders(); });
   if (sel.conn) loadBuckets(); else fill(list, h('div.pk-empty', 'Add a connection first.'));
   return { el, value: () => ({ ...sel }), set: v => { Object.assign(sel, v); connSel.value = sel.conn; loadBuckets(); } };

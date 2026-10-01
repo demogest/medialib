@@ -86,6 +86,37 @@ def add_local_library(cfg, path, name=None):
     return lib
 
 
+def update_library(cfg, lib_id, data):
+    """Edit a library in place. Returns (library, moved): moved is True when its location changed, which makes the
+    stored index stale (the next indexing run drops what is no longer there and adds what is new)."""
+    with _config_lock:
+        lib = next((x for x in cfg["libraries"] if x["id"] == lib_id), None)
+        if not lib:
+            raise ValueError("Unknown library.")
+        name = (data.get("name") or "").strip() or lib["name"]
+        new = dict(lib, name=name)
+        if lib["type"] == "local" and data.get("path") is not None:
+            path = os.path.normpath(os.path.expandvars(data["path"].strip().strip('"')))
+            if not os.path.isabs(path) or not os.path.isdir(path):
+                raise ValueError(f"Not a reachable folder: {path}")
+            new["path"] = path
+        elif lib["type"] == "s3" and data.get("bucket") is not None:
+            prefix = (data.get("prefix") or "").lstrip("/")
+            conn = data.get("connection") or lib["connection"]
+            if not any(c["id"] == conn for c in cfg.get("connections", [])):
+                raise ValueError("Unknown connection.")
+            if not data["bucket"]:
+                raise ValueError("Pick a bucket.")
+            new.update(connection=conn, bucket=data["bucket"], prefix=prefix + "/" if prefix and not prefix.endswith("/") else prefix)
+        for other in cfg["libraries"]:
+            if other is not lib and other["type"] == new["type"] and location(other) == location(new) and (other.get("connection") == new.get("connection")):
+                raise ValueError(f"That location is already the library “{other['name']}”.")
+        moved = location(new) != location(lib) or new.get("connection") != lib.get("connection")
+        lib.update(new)
+        save_config(cfg)
+    return lib, moved
+
+
 def location(lib):
     if lib["type"] == "local":
         return local_root(lib)

@@ -6,7 +6,7 @@ import { bytes, clock, collator, extOf, leaf, num, resLabel, span, stem, when } 
 import { href, navigate, replace } from '../lib/router.js';
 import { loadLibraries, loadConnections, on, pokeWatcher, running, state } from '../lib/state.js';
 import { store } from '../lib/store.js';
-import { confirmDialog, contextMenu, modal, promptDialog, showMenu, toast, toastError } from '../lib/ui.js';
+import { confirmDialog, contextMenu, modal, showMenu, toast, toastError } from '../lib/ui.js';
 import { locationPicker } from '../lib/picker.js';
 import { editConnection } from './connections.js';
 
@@ -349,7 +349,7 @@ export async function mount(root, parts) {
           h('button.btn.small', { type: 'button', disabled: l.id === S.lib, onclick: () => { m.close(); navigate('library', l.id); } }, 'Open'),
           h('button.btn.small', { type: 'button', disabled: busy, onclick: () => startIndex(l.id) }, l.updated ? 'Update index' : 'Index'),
           h('button.icon-btn.small', { type: 'button', 'aria-label': 'More', onclick: e => showMenu({ anchor: e.currentTarget, align: 'right', items: [
-            { label: 'Rename…', icon: 'edit', onClick: () => rename(l) },
+            { label: 'Edit…', icon: 'edit', disabled: busy, onClick: () => editLibrary(l) },
             { label: 'Re-index everything', icon: 'refresh', disabled: busy, onClick: () => startIndex(l.id, true) },
             l.convertible ? { label: 'Read directly over S3 (no rclone)', icon: 'cloud', disabled: busy, onClick: () => convert(l) } : null,
             { sep: true },
@@ -361,10 +361,45 @@ export async function mount(root, parts) {
     paint();
   }
 
-  async function rename(l) {
-    const name = await promptDialog({ title: 'Rename library', label: 'Name', value: l.name, confirm: 'Rename', validate: v => (v ? '' : 'Enter a name.') });
-    if (!name) return;
-    try { await post('/api/libraries/rename', { id: l.id, name }); await loadLibraries(); paintSwitch(); } catch (e) { toastError('Could not rename', e); }
+  // Edit a library: its name, and where it points (folder, or connection + bucket + folder). A new location is re-indexed.
+  function editLibrary(l) {
+    const nameIn = h('input.input', { value: l.name, autocomplete: 'off' });
+    const err = h('p.form-error', { hidden: true });
+    let where = null, getBody = () => ({});
+    if (l.type === 'local') {
+      const pathIn = h('input.input', { value: l.location, autocomplete: 'off', spellcheck: 'false' });
+      const browse = h('button.btn', { type: 'button', onclick: async e => {
+        const b = e.currentTarget; b.disabled = true; b.textContent = 'Pick in the dialog…';
+        try { const j = await post('/api/pick-folder', {}); if (j.path) pathIn.value = j.path; } catch (x) { err.textContent = x.message; err.hidden = false; }
+        b.disabled = false; b.textContent = 'Browse…';
+      } }, 'Browse…');
+      where = h('div.field', h('label', 'Folder'), h('div.input-wrap', pathIn, browse));
+      getBody = () => ({ path: pathIn.value });
+    } else if (l.type === 's3') {
+      let loc = { conn: l.connection, bucket: l.bucket, prefix: l.prefix };
+      const picker = locationPicker({ conn: l.connection, bucket: l.bucket, prefix: l.prefix, onChange: v => { loc = v; } });
+      where = h('div.field', h('div.label', 'Location'), picker.el);
+      getBody = () => ({ connection: loc.conn, bucket: loc.bucket, prefix: loc.prefix });
+    } else {
+      where = h('p.hint', 'This library reads through an rclone remote, so only its name can change. Use “Read directly over S3” to make its location editable.');
+    }
+    const m = modal({
+      title: 'Edit library', size: l.type === 's3' ? 'wide' : '',
+      body: h('div', err, h('div.field', h('label', 'Name'), nameIn), where,
+        l.type === 'rclone' ? null : h('p.hint', 'Changing the location re-indexes the library. Covers of files that are still there are reused only if the file keeps its path.')),
+      actions: [{ label: 'Cancel', value: false }, { label: 'Save', primary: true, keepOpen: true, onClick: async api => {
+        err.hidden = true;
+        try {
+          const j = await post('/api/libraries/update', { id: l.id, name: nameIn.value, ...getBody() });
+          await loadLibraries();
+          api.close(true);
+          if (l.id === S.lib) { paintSwitch(); loadLibrary(); }
+          if (j.moved) { toast('Location changed. Indexing…', { kind: 'ok' }); pokeWatcher(); }
+        } catch (e) { err.textContent = e.message; err.hidden = false; }
+        return false;
+      } }],
+    });
+    nameIn.select();
   }
   async function convert(l) {
     if (!await confirmDialog({ title: 'Read this library over S3 directly?', message: `“${l.name}” will use the stored S3 credentials instead of starting an rclone process for each request.`, detail: 'Its index and covers stay as they are.', confirm: 'Switch' })) return;

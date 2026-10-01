@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import __version__
 from . import connections as conns
-from .config import _config_lock, add_local_library, add_s3_library, find_library, local_root, location, save_config
+from .config import _config_lock, add_local_library, add_s3_library, find_library, local_root, location, save_config, update_library
 from .indexer import load_library, run_index
 from .players import detect_players
 from .s3 import PROVIDERS, S3Error
@@ -571,6 +571,19 @@ def r_active(c):
 def r_rename(c):
     c.app.rename(c.body.get("id"), c.body.get("name"))
     return {"ok": True}
+
+
+@route("POST", r"/api/libraries/update")
+def r_update_library(c):
+    lib_id = c.body.get("id")
+    if c.app.jobs.get(lib_id, {}).get("state") in RUNNING:
+        raise ApiError(400, "That library is being indexed; wait for it to finish.")
+    lib, moved = update_library(c.cfg, lib_id, c.body)
+    c.app.stores.pop(lib_id, None)
+    c.app.links.clear()
+    if moved:
+        c.app.start_index(lib)  # its old index describes another place
+    return {**c.app.describe(lib), "moved": moved}
 
 
 @route("POST", r"/api/libraries/convert")

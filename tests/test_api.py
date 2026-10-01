@@ -335,6 +335,22 @@ class Api(unittest.TestCase):
         with urllib.request.urlopen(req) as r:
             self.assertEqual((r.status, r.read()), (206, b"ftyp"))
 
+    def test_edit_library_name_and_location(self):
+        bkt = self.bucket("editable")
+        lib = self.post("/api/libraries", {"type": "s3", "connection": self.conn, "bucket": bkt, "prefix": "a", "name": "Editable"})
+        out = self.post("/api/libraries/update", {"id": lib["id"], "name": "Renamed"})
+        self.assertEqual((out["name"], out["moved"], out["location"]), ("Renamed", False, f"s3://{bkt}/a/"))
+        for _ in range(50):  # let the first indexing run finish: editing is refused while one is running
+            if self.get("/api/index")["jobs"].get(lib["id"], {}).get("state") == "done":
+                break
+            time.sleep(0.1)
+        out = self.post("/api/libraries/update", {"id": lib["id"], "connection": self.conn, "bucket": bkt, "prefix": "b/c"})
+        self.assertEqual((out["moved"], out["location"]), (True, f"s3://{bkt}/b/c/"))
+        status, body, _ = self.call("POST", "/api/libraries/update", {"id": lib["id"], "bucket": ""}, check=False)
+        self.assertEqual(status, 400)
+        status, body, _ = self.call("POST", "/api/libraries/update", {"id": "nope", "name": "x"}, check=False)
+        self.assertEqual(status, 400)
+
 
 if __name__ == "__main__":
     unittest.main()
