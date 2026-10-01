@@ -2,10 +2,14 @@
 import { h, $ } from './dom.js';
 import { icon } from './icons.js';
 
+/** Where floating things go: an open modal dialog lives in the browser's top layer, so anything appended to <body> would hide behind it. */
+const topHost = () => [...document.querySelectorAll('dialog[open]')].pop() || document.body;
+
 // ---------------------------------------------------------------- toast
 let toastHost;
 export function toast(message, { kind = 'info', action, ms } = {}) {
-  toastHost ||= document.body.appendChild(h('div.toasts', { role: 'status', 'aria-live': 'polite' }));
+  toastHost ||= h('div.toasts', { role: 'status', 'aria-live': 'polite' });
+  if (toastHost.parentNode !== topHost()) topHost().append(toastHost);
   const el = h('div.toast', { class: kind }, kind === 'ok' ? icon('check', 'sm') : kind === 'error' ? icon('alert', 'sm') : null, h('span', message));
   if (action) el.append(h('button.act', { type: 'button', onclick: () => { action.run(); el.remove(); } }, action.label));
   toastHost.append(el);
@@ -112,7 +116,7 @@ export function showMenu({ anchor, x, y, items, align = 'left', onClose }) {
     buttons.push(b);
     el.append(b);
   }
-  document.body.append(el);
+  topHost().append(el);
   const r = anchor ? anchor.getBoundingClientRect() : { left: x, right: x, top: y, bottom: y, width: 0 };
   const w = el.offsetWidth, hgt = el.offsetHeight, m = 8;
   let left = align === 'right' ? r.right - w : r.left;
