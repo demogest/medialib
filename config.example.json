@@ -1,0 +1,38 @@
+{
+  "rclone": "rclone",
+  "ffmpeg": "ffmpeg",
+  "ffprobe": "ffprobe",
+  "port": 8766,
+  "default_player": "mpv",
+  "players": [
+    {
+      "id": "my-mpv",
+      "name": "mpv (portable)",
+      "path": "D:\\Apps\\mpv\\mpv.exe",
+      "title_arg": "--force-media-title={title}"
+    }
+  ],
+  "active": "videos",
+  "libraries": [
+    {
+      "id": "videos",
+      "name": "Videos",
+      "type": "local",
+      "path": "%USERPROFILE%\\Videos"
+    },
+    {
+      "id": "nas",
+      "name": "NAS",
+      "type": "local",
+      "path": "\\\\nas\\media\\videos"
+    },
+    {
+      "id": "s3-videos",
+      "name": "S3 videos",
+      "type": "rclone",
+      "remote": "myremote:",
+      "bucket": "media",
+      "prefix": "videos/"
+    }
+  ]
+}

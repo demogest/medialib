@@ -1,0 +1,9 @@
+# Personal and generated: library indexes, thumbnails, playlists, your settings, logs
+cache/
+config.json
+config.tmp
+*.log
+__pycache__/
+*.pyc
+# scratch scripts
+_*.py
