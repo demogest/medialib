@@ -1,0 +1,13 @@
+# A medialib server. Put it behind HTTPS (a reverse proxy) before exposing it to the internet.
+services:
+  medialib:
+    build: .
+    ports: ["8766:8766"]
+    environment:
+      MEDIALIB_PASSWORD: change-me      # required to manage libraries and connections from another computer
+    volumes:
+      - medialib-data:/data             # config.json, indexes and thumbnails
+      - /path/to/videos:/media:ro       # then add /media as a library in the UI
+    restart: unless-stopped
+volumes:
+  medialib-data:

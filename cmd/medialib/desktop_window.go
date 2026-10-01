@@ -1,0 +1,69 @@
+//go:build !desktop
+
+package main
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+
+	"github.com/demogest/medialib/internal/config"
+	"github.com/demogest/medialib/internal/proc"
+)
+
+// runDesktop shows the UI in its own window. This build has no embedded web view, so it borrows the app mode of
+// Edge, Chrome or Chromium (a window with no tabs or address bar, its own profile). Build with `-tags desktop` for
+// a native window instead (see README).
+func runDesktop(url string) error {
+	browser := findAppBrowser()
+	if browser == "" {
+		fmt.Println("No Edge, Chrome or Chromium found for an app window; opening your browser instead. Press Ctrl+C to stop.")
+		openBrowser(url)
+		waitForInterrupt()
+		return nil
+	}
+	profile := filepath.Join(config.Home(), "window-profile")
+	cmd := exec.Command(browser, "--app="+url, "--user-data-dir="+profile, "--no-first-run", "--no-default-browser-check", "--window-size=1360,860")
+	proc.Hide(cmd)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// The window is closed: the server goes with it. (If Chromium handed the window to a running instance this
+	// returns early; --user-data-dir keeps medialib's window in a process of its own.)
+	return cmd.Wait()
+}
+
+func findAppBrowser() string {
+	var candidates []string
+	switch runtime.GOOS {
+	case "windows":
+		for _, base := range []string{os.Getenv("ProgramFiles(x86)"), os.Getenv("ProgramFiles"), os.Getenv("LocalAppData")} {
+			if base == "" {
+				continue
+			}
+			candidates = append(candidates,
+				filepath.Join(base, `Microsoft\Edge\Application\msedge.exe`),
+				filepath.Join(base, `Google\Chrome\Application\chrome.exe`))
+		}
+	case "darwin":
+		candidates = []string{
+			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+			"/Applications/Chromium.app/Contents/MacOS/Chromium",
+		}
+	default:
+		for _, n := range []string{"microsoft-edge", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser"} {
+			if p, err := exec.LookPath(n); err == nil {
+				candidates = append(candidates, p)
+			}
+		}
+	}
+	for _, c := range candidates {
+		if st, err := os.Stat(c); err == nil && !st.IsDir() {
+			return c
+		}
+	}
+	return ""
+}

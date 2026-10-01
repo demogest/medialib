@@ -1,0 +1,6 @@
+.git
+dist
+cache
+config.json
+tests
+*.md
