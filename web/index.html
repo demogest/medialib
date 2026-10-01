@@ -2,121 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>Media Library</title>
-<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='3' width='28' height='26' rx='8' fill='%232a6fdb'/%3E%3Cpath d='M12 9.5v13l11-6.5-11-6.5Z' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/components.css">
+<link rel="stylesheet" href="/static/css/library.css">
+<link rel="stylesheet" href="/static/css/storage.css">
+<link rel="stylesheet" href="/static/css/pages.css">
+<script>
+  // Apply the saved theme before the first paint so there is no flash.
+  try { const t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) { /* default */ }
+</script>
 </head>
 <body>
-<header class="top">
-  <button class="icon-btn nav-toggle" id="nav-toggle" type="button" aria-label="Show folders" aria-controls="nav" aria-expanded="false">
-    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-  </button>
-  <div class="brand">Media Library</div>
-  <div class="libpick">
-    <select id="library" aria-label="Library"></select>
-    <button class="icon-btn" id="manage" type="button" aria-label="Manage libraries" title="Manage libraries">
-      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 6.2A1.7 1.7 0 0 1 4.2 4.5h3.3l1.7 1.9h6.6a1.7 1.7 0 0 1 1.7 1.7v6.2a1.7 1.7 0 0 1-1.7 1.7H4.2a1.7 1.7 0 0 1-1.7-1.7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M10 9v4.4M7.8 11.2h4.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-    </button>
-  </div>
-  <input id="q" type="search" placeholder="Search names…  ( / )" aria-label="Search names" autocomplete="off">
-  <label class="field"><span>Sort</span>
-    <select id="sort">
-      <option value="name">Name</option>
-      <option value="new">Newest</option>
-      <option value="size">Largest</option>
-      <option value="dur">Longest</option>
-    </select>
-  </label>
-  <div class="types">
-    <button class="btn" id="types-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="types-menu">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12l-4.6 5.4v4.1l-2.8 1.5V8.4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
-      <span id="types-label">Types</span>
-    </button>
-    <div class="menu" id="types-menu" role="group" aria-label="File types shown" hidden>
-      <div class="menu-head">File types shown</div>
-      <div id="types-list"></div>
-      <div class="menu-actions">
-        <button class="btn small" id="types-common" type="button">Common video only</button>
-        <button class="btn small" id="types-all" type="button">Show all</button>
-      </div>
-    </div>
-  </div>
-  <label class="field"><span>Play with</span><select id="player"></select></label>
-  <div class="sizes" role="group" aria-label="Cover size">
-    <button type="button" data-size="s" aria-label="Small covers">S</button>
-    <button type="button" data-size="m" aria-label="Medium covers">M</button>
-    <button type="button" data-size="l" aria-label="Large covers">L</button>
-  </div>
-  <button class="ring" id="ring" type="button" hidden>
-    <svg viewBox="0 0 36 36" aria-hidden="true">
-      <circle class="ring-track" cx="18" cy="18" r="15"/>
-      <circle class="ring-bar" id="ring-bar" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100"/>
-    </svg>
-    <span id="ring-text"></span>
-  </button>
-</header>
-
-<div class="layout">
-  <nav id="nav" aria-label="Folders">
-    <div class="nav-head"><span>Folders</span>
-      <button class="icon-btn" id="nav-close" type="button" aria-label="Close folders">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-      </button>
-    </div>
-    <ul class="tree" id="tree"></ul>
-  </nav>
-  <div class="scrim" id="scrim" hidden></div>
-
-  <main id="main">
-    <div class="banner" id="banner" hidden>
-      <div class="banner-body">
-        <span id="banner-text"></span>
-        <div class="meter" id="banner-meter" hidden><i></i></div>
-      </div>
-      <button class="btn" type="button" id="banner-action" hidden></button>
-    </div>
-    <ul class="warnings" id="warnings" hidden></ul>
-    <div class="scopebar">
-      <div class="scope-text">
-        <ol class="crumbs" id="crumbs"></ol>
-        <div class="stats" id="stats"></div>
-      </div>
-      <div class="actions">
-        <button class="btn primary" type="button" id="play-all">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>Play all
-        </button>
-        <button class="btn" type="button" id="copy-playlist">Copy playlist URL</button>
-      </div>
-    </div>
-    <div id="groups"></div>
-    <p class="empty" id="empty" hidden>Nothing here matches.</p>
-  </main>
+<div class="shell" id="shell">
+  <nav class="rail" id="rail" aria-label="Sections"></nav>
+  <main class="view" id="view"></main>
 </div>
-
-<dialog id="libs" aria-labelledby="libs-title">
-  <div class="dlg-head">
-    <h2 id="libs-title">Libraries</h2>
-    <button class="icon-btn" id="libs-close" type="button" aria-label="Close">
-      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-    </button>
-  </div>
-  <ul class="lib-list" id="lib-list"></ul>
-  <form class="add" id="add-form">
-    <h3>Add a local folder</h3>
-    <p class="hint">A folder on a disk or a NAS share, for example <code>D:\Videos</code> or <code>\\nas\media\videos</code>. Subfolders are included.</p>
-    <div class="row">
-      <input id="add-path" type="text" placeholder="Folder path" aria-label="Folder path" autocomplete="off" spellcheck="false" required>
-      <button class="btn" type="button" id="browse">Browse…</button>
-    </div>
-    <div class="row">
-      <input id="add-name" type="text" placeholder="Name (optional, defaults to the folder name)" aria-label="Library name" autocomplete="off">
-      <button class="btn primary" type="submit" id="add-submit">Add and index</button>
-    </div>
-    <p class="form-error" id="add-error" role="alert" hidden></p>
-  </form>
-</dialog>
-
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="/static/app.js"></script>
+<script type="module" src="/static/js/main.js"></script>
 </body>
 </html>

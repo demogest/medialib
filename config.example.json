@@ -3,7 +3,7 @@
   "ffmpeg": "ffmpeg",
   "ffprobe": "ffprobe",
   "port": 8766,
-  "default_player": "mpv",
+  "default_player": "my-mpv",
   "players": [
     {
       "id": "my-mpv",
@@ -13,6 +13,20 @@
     }
   ],
   "active": "videos",
+  "connections": [
+    {
+      "id": "rustfs",
+      "name": "RustFS",
+      "provider": "rustfs",
+      "endpoint": "https://s3.example.com",
+      "region": "us-east-1",
+      "access_key": "YOUR_ACCESS_KEY",
+      "secret_key_env": "RUSTFS_SECRET_KEY",
+      "addressing": "path",
+      "verify_tls": true,
+      "default_bucket": ""
+    }
+  ],
   "libraries": [
     {
       "id": "videos",
@@ -29,8 +43,8 @@
     {
       "id": "s3-videos",
       "name": "S3 videos",
-      "type": "rclone",
-      "remote": "myremote:",
+      "type": "s3",
+      "connection": "rustfs",
       "bucket": "media",
       "prefix": "videos/"
     }
