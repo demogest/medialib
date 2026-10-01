@@ -2,8 +2,13 @@
 cache/
 config.json
 config.tmp
+window-profile/
 *.log
+# build output
+dist/
+/medialib
+/medialib.exe
+# scratch scripts
+/_*.py
 __pycache__/
 *.pyc
-# scratch scripts
-_*.py

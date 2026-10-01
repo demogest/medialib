@@ -87,7 +87,15 @@ export async function mount(root, parts) {
     try {
       const j = await post('/api/play', { lib: S.lib, ids: ids.slice(0, 500), player: S.player });
       toast(j.count > 1 ? `Opening ${j.count} items in ${j.player}` : `Opening in ${j.player}`, { kind: 'ok' });
-    } catch (e) { toastError('Could not start the player', e); }
+    } catch (e) {
+      if (e.status === 403) { // a browser on another computer: the server cannot open a player on that screen
+        const it = ids.length === 1 ? S.items.find(x => x.id === ids[0]) : null;
+        window.open(it ? mediaUrl(it) : `/api/playlist.m3u8?lib=${encodeURIComponent(S.lib)}&ids=${ids.slice(0, 500).map(encodeURIComponent).join(',')}`, '_blank');
+        toast(it ? 'Opening the stream in your browser' : 'Downloading a playlist for your player', { kind: 'ok' });
+        return;
+      }
+      toastError('Could not start the player', e);
+    }
   }
   async function copy(text, what) {
     try { await navigator.clipboard.writeText(text); toast(what + ' copied', { kind: 'ok' }); } catch { toast('Copy failed: ' + text, { kind: 'error' }); }

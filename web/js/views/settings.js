@@ -31,15 +31,15 @@ export async function mount(root) {
       h('div.card-box.set-card',
         tool('ffmpeg', info.ffmpeg, 'Decodes keyframes into covers. Required for indexing.'),
         tool('ffprobe', info.ffprobe, 'Reads duration, resolution and codec.'),
-        tool('Pillow', info.pillow, 'Optional: picks the most detailed frame as the cover.'),
         tool('rclone', info.rclone, 'Optional: only for older libraries that read through an rclone remote.')),
       h('div.section-title', 'Players'),
-      h('div.card-box.set-card', info.players.length ? info.players.map(p => h('div.set-row', h('div.grow', h('div.set-name', p.name)), p.path ? h('code.mono.set-path', p.path) : h('span.muted', 'Windows default'))) : h('div.set-row.muted', 'No player found. Add one under "players" in config.json.')),
+      h('div.card-box.set-card', info.players.length ? info.players.map(p => h('div.set-row', h('div.grow', h('div.set-name', p.name)), p.path ? h('code.mono.set-path', p.path) : h('span.muted', 'Opens with the system default'))) : h('div.set-row.muted', 'No player found. Add one under "players" in config.json.')),
       h('div.section-title', 'About'),
       h('div.card-box.set-card',
         h('div.set-row', h('div.grow', 'medialib'), h('span.mono', info.version)),
-        h('div.set-row', h('div.grow', 'Python'), h('span.mono', info.python)),
+        h('div.set-row', h('div.grow', 'Runtime'), h('span.mono', `${info.runtime} · ${info.platform}`)),
+        h('div.set-row', h('div.grow', 'Mode'), h('span.mono', info.mode === 'desktop' ? 'Desktop app' : 'Web server')),
         h('div.set-row', h('div.grow', 'Settings and index'), h('code.mono.set-path', info.config_dir)),
-        h('div.set-row', h('div.grow', 'Listening on'), h('span.mono', `127.0.0.1:${info.port}`)))] : h('div.banner.error', 'Could not read system information.'));
+        h('div.set-row', h('div.grow', 'Listening on'), h('span.mono', info.listen || `127.0.0.1:${info.port}`)))] : h('div.banner.error', 'Could not read system information.'));
   return {};
 }

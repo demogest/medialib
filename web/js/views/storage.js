@@ -415,7 +415,13 @@ export async function mount(root, parts) {
     try {
       const j = await post(s3Path(S.conn, S.bucket, 'play'), { keys: rows.map(r => r.key), player: store.get('player', state.defaultPlayer) });
       toast(j.count > 1 ? `Opening ${j.count} items in ${j.player}` : `Opening in ${j.player}`, { kind: 'ok' });
-    } catch (e) { toastError('Could not start the player', e); }
+    } catch (e) {
+      if (e.status === 403 && rows.length === 1) { // a browser on another computer: play in the browser instead
+        window.open(objectUrl(S.conn, S.bucket, rows[0].key), '_blank');
+        return;
+      }
+      toastError('Could not start the player', e);
+    }
   }
 
   async function newFolder() {
