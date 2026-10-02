@@ -23,8 +23,10 @@ jobs:
       - run: choco install innosetup -y --no-progress
       - run: powershell -NoProfile -File scripts/package-windows.ps1 -Version ${{ github.ref_name }}
       - uses: softprops/action-gh-release@v2
-        with: { files: "dist/medialib-setup-*.exe
-dist/medialib-desktop-windows-*.zip" }
+        with:
+          files: |
+            dist/medialib-setup-*.exe
+            dist/medialib-desktop-windows-*.zip
   desktop:
     strategy:
       matrix:
