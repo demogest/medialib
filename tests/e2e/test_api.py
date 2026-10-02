@@ -311,8 +311,8 @@ class Api(unittest.TestCase):
             self.assertGreaterEqual(i["frames"], 3, i)
             self.assertAlmostEqual(i["duration"], 6, delta=0.5)
             self.assertNotIn("error", i)
-            status, jpg, _ = self.call("GET", f"/thumbs/{lib['id']}/{i['id']}-{i['ver']}-0.jpg")
-            self.assertEqual(jpg[:2], b"\xff\xd8")
+            status, jpg, _ = self.call("GET", f"/thumbs/{lib['id']}/{i['id']}-{i['ver']}-0.avif")
+            self.assertTrue(jpg[:2] == b"\xff\xd8" or (jpg[:4] == b"RIFF" and jpg[8:12] == b"WEBP") or jpg[4:8] == b"ftyp")
         # the stable media URL redirects to a presigned link that serves ranges
         it = items[0]
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/media/{lib['id']}/{it['id']}/x.mp4", headers={"Range": "bytes=4-7"})

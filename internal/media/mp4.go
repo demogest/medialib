@@ -386,7 +386,7 @@ type Meta struct {
 func round2(f float64) float64 { return math.Round(f*100) / 100 }
 
 // mp4Keyframes decodes a few keyframes of an MP4 by reading only their bytes. stem is the thumbnail path without
-// its "-<n>.jpg" suffix.
+// its "-<n><ext>" suffix.
 func mp4Keyframes(tools Tools, r Reader, size int64, stem string) (meta Meta, paths []string, err error) {
 	defer func() {
 		if p := recover(); p != nil {
@@ -503,7 +503,7 @@ func mp4Keyframes(tools Tools, r Reader, size int64, stem string) (meta Meta, pa
 				defer wg.Done()
 				frameSem <- struct{}{}
 				defer func() { <-frameSem }()
-				out := fmt.Sprintf("%s-k%d.jpg", stem, i)
+				out := fmt.Sprintf("%s-k%d%s", stem, i, tools.FrameExt())
 				if tools.decodeFrame(format, streams[i], out) {
 					outs[i] = out
 				}
@@ -511,7 +511,7 @@ func mp4Keyframes(tools Tools, r Reader, size int64, stem string) (meta Meta, pa
 		}
 		wg.Wait()
 	}
-	paths = numberFrames(stem, outs)
+	paths = numberFrames(stem, outs, tools.FrameExt())
 	if len(paths) == 0 {
 		return meta, nil, errors.New("no keyframe decoded")
 	}
@@ -527,14 +527,14 @@ func all(streams [][]byte) bool {
 	return true
 }
 
-// numberFrames renames the frames that came out (in time order) to <stem>-0.jpg, -1.jpg, ... with no gaps.
-func numberFrames(stem string, outs []string) []string {
+// numberFrames renames the frames that came out (in time order) to <stem>-0<ext>, -1<ext>, ... with no gaps.
+func numberFrames(stem string, outs []string, ext string) []string {
 	var paths []string
 	for _, out := range outs {
 		if out == "" {
 			continue
 		}
-		final := fmt.Sprintf("%s-%d.jpg", stem, len(paths))
+		final := fmt.Sprintf("%s-%d%s", stem, len(paths), ext)
 		if err := os.Rename(out, final); err != nil {
 			_ = os.Remove(out)
 			continue

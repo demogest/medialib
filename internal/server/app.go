@@ -46,6 +46,7 @@ type App struct {
 
 	mu     sync.RWMutex
 	stores map[string]*media.Store
+	launched map[string]time.Time // recent player launches, see Launch
 	links  map[linkKey]link
 	jobs   map[string]*media.Job
 }
@@ -283,6 +284,25 @@ func (a *App) Play(lib config.Library, playerID string, recs []*media.Item) (str
 
 // Launch opens entries in a player: one directly, several as a playlist.
 func (a *App) Launch(playerID string, entries []players.Entry) (string, error) {
+	// A repeated request for the very same thing a moment after the first (a key held down, a double click, an
+	// impatient second try while the player is still starting) must not start another player.
+	key := playerID + "\x00" + fmt.Sprint(len(entries)) + "\x00" + entries[0].Target
+	a.mu.Lock()
+	if a.launched == nil {
+		a.launched = map[string]time.Time{}
+	}
+	if t, ok := a.launched[key]; ok && time.Since(t) < 6*time.Second {
+		a.mu.Unlock()
+		name := playerID
+		for _, p := range a.Players {
+			if p.ID == playerID {
+				name = p.Name
+			}
+		}
+		return name, nil
+	}
+	a.launched[key] = time.Now()
+	a.mu.Unlock()
 	return players.Launch(a.Players, playerID, entries, filepath.Join(a.Cfg.CacheDir(), "playlists", "now-playing.m3u8"))
 }
 

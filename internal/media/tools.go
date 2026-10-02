@@ -4,15 +4,131 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	"image/jpeg"
+	_ "image/jpeg" // decoders for coverScore
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	_ "golang.org/x/image/webp"
+
 	"github.com/demogest/medialib/internal/proc"
 )
+
+// Thumbnails are AVIF (about a third of the JPEGs of version 3.0 at the same look) when this ffmpeg can write it,
+// else WebP (about half), else JPEG. The server answers any of the three extensions, so a library can hold a mix
+// while it is converted (`medialib compact`).
+//
+// AVIF has no Go decoder, and the cover choice needs to look at the pixels, so frames are first written as JPEG
+// (the "frame" format), scored in Go, and then packed into AVIF (the final format) by Tools.Finalize.
+const (
+	extAVIF = ".avif"
+	extWebP = ".webp"
+	extJPEG = ".jpg"
+	// DefaultThumbQuality is the 0-100 setting. It maps to libwebp's -quality directly and to libaom's CRF as
+	// 63 - q*0.38 (65 -> CRF 38). On real 480 px thumbnails: AVIF 30% of the old JPEG q5 at SSIM 0.944, WebP 41% at 0.947.
+	DefaultThumbQuality = 65
+)
+
+var thumbExts = []string{extAVIF, extWebP, extJPEG}
+
+var thumbFormats sync.Map // ffmpeg path and quality -> thumbFormat
+
+type thumbFormat struct {
+	ext       string   // final thumbnails
+	args      []string // encoder arguments that turn an image file into one
+	muxer     string   // -f value for the final file ("" lets ffmpeg choose)
+	frameExt  string   // what ffmpeg writes straight from the video
+	frameArgs []string
+}
+
+// format reports which still-image formats this ffmpeg writes.
+func (t Tools) format() thumbFormat {
+	q := t.Quality
+	if q < 1 || q > 100 {
+		q = DefaultThumbQuality
+	}
+	key := t.FFmpeg + "|" + strconv.Itoa(q)
+	if v, ok := thumbFormats.Load(key); ok {
+		return v.(thumbFormat)
+	}
+	list := func(what string) string {
+		if out, err := proc.Run(20*time.Second, nil, t.FFmpeg, "-hide_banner", what); err == nil && out != nil {
+			return string(out.Stdout)
+		}
+		return ""
+	}
+	enc, mux := list("-encoders"), list("-muxers")
+	jpg := []string{"-q:v", "5"}
+	f := thumbFormat{ext: extJPEG, args: jpg, frameExt: extJPEG, frameArgs: jpg}
+	switch {
+	case strings.Contains(enc, "libaom-av1") && strings.Contains(mux, " avif"):
+		crf := strconv.Itoa(int(math.Round(63 - float64(q)*0.38)))
+		f = thumbFormat{ext: extAVIF, muxer: "avif", frameExt: extJPEG, frameArgs: []string{"-q:v", "3"},
+			args: []string{"-c:v", "libaom-av1", "-crf", crf, "-b:v", "0", "-cpu-used", "6", "-threads", "2", "-still-picture", "1", "-pix_fmt", "yuv420p"}}
+	case strings.Contains(enc, "libwebp"):
+		w := []string{"-c:v", "libwebp", "-quality", strconv.Itoa(q), "-compression_level", "6"}
+		f = thumbFormat{ext: extWebP, args: w, muxer: "webp", frameExt: extWebP, frameArgs: w}
+	}
+	thumbFormats.Store(key, f)
+	return f
+}
+
+// Ext is the file extension of the thumbnails this program leaves in the cache.
+func (t Tools) Ext() string { return t.format().ext }
+
+// FrameExt is the extension of the frames ffmpeg writes before Finalize.
+func (t Tools) FrameExt() string { return t.format().frameExt }
+
+// convertImage re-encodes an image file into the final format. It leaves dst complete or absent, never partial.
+func (t Tools) convertImage(src, dst string) bool {
+	f := t.format()
+	part := dst + ".part"
+	a := append([]string{"-v", "error", "-i", src}, f.args...)
+	if f.muxer != "" {
+		a = append(a, "-f", f.muxer)
+	}
+	a = append(a, "-y", part)
+	if r, err := proc.Run(120*time.Second, nil, t.FFmpeg, a...); err != nil || r.ExitCode != 0 || !nonEmpty(fileSize(part)) {
+		_ = os.Remove(part)
+		return false
+	}
+	if os.Rename(part, dst) != nil {
+		_ = os.Remove(part)
+		return false
+	}
+	return true
+}
+
+// Finalize turns the frames ffmpeg wrote into the final format (a no-op unless that is AVIF). A frame that cannot be
+// converted stays as it is: the server finds it under any extension.
+func (t Tools) Finalize(paths []string) []string {
+	f := t.format()
+	if f.ext == f.frameExt {
+		return paths
+	}
+	out := make([]string, len(paths))
+	var wg sync.WaitGroup
+	for i, p := range paths {
+		out[i] = p
+		wg.Add(1)
+		go func(i int, p string) {
+			defer wg.Done()
+			frameSem <- struct{}{}
+			defer func() { <-frameSem }()
+			dst := strings.TrimSuffix(p, filepath.Ext(p)) + f.ext
+			if t.convertImage(p, dst) {
+				_ = os.Remove(p)
+				out[i] = dst
+			}
+		}(i, p)
+	}
+	wg.Wait()
+	return out
+}
 
 // Fractions say where the keyframes are taken, as a share of the duration.
 var Fractions = []float64{0.1, 0.3, 0.5, 0.7, 0.9}
@@ -29,6 +145,7 @@ type Tools struct {
 	FFmpeg  string
 	FFprobe string
 	Rclone  string
+	Quality int // thumbnail quality 1-100 (0: DefaultThumbQuality)
 }
 
 func nonEmpty(sz int64, err error) bool { return err == nil && sz > 0 }
@@ -48,7 +165,8 @@ func (t Tools) decodeFrame(format string, data []byte, out string) bool {
 		args = append(args, "-flags2", "+showall") // also output lone non-IDR I-frames
 	}
 	for _, vf := range []string{scale, scaleBT709} {
-		a := append(append([]string{}, args...), "-i", "pipe:0", "-frames:v", "1", "-vf", vf, "-q:v", "5", "-y", out)
+		a := append(append([]string{}, args...), "-i", "pipe:0", "-frames:v", "1", "-vf", vf)
+		a = append(append(a, t.format().frameArgs...), "-y", out)
 		if _, err := proc.Run(60*time.Second, data, t.FFmpeg, a...); err != nil {
 			return false
 		}
@@ -61,7 +179,7 @@ func (t Tools) decodeFrame(format string, data []byte, out string) bool {
 
 // decodeBatch decodes several keyframe bitstreams of one video in a single ffmpeg process: they are concatenated into
 // one stream (each starts with its own parameter sets, so each decodes on its own) and every picture is written as
-// <stem>-k<i>.jpg. One process instead of one per keyframe matters most on Windows, where starting a program is slow.
+// <stem>-k<i><ext>. One process instead of one per keyframe matters most on Windows, where starting a program is slow.
 // It returns the file names, or false if the number of pictures that came out is not the number that went in (the
 // caller then decodes them one by one).
 func (t Tools) decodeBatch(format string, streams [][]byte, stem string) ([]string, bool) {
@@ -74,39 +192,41 @@ func (t Tools) decodeBatch(format string, streams [][]byte, stem string) ([]stri
 		all = append(all, s...)
 	}
 	for _, vf := range []string{scale, scaleBT709} {
-		a := append(append([]string{}, args...), "-i", "pipe:0", "-vf", vf, "-fps_mode", "passthrough", "-q:v", "5", "-start_number", "0", "-y", stem+"-k%d.jpg")
+		ext := t.FrameExt()
+		a := append(append([]string{}, args...), "-i", "pipe:0", "-vf", vf, "-fps_mode", "passthrough")
+		a = append(append(a, t.format().frameArgs...), "-start_number", "0", "-y", stem+"-k%d"+ext)
 		_, err := proc.Run(120*time.Second, all, t.FFmpeg, a...)
 		outs := make([]string, len(streams))
 		complete := err == nil
 		for i := range outs {
-			outs[i] = fmt.Sprintf("%s-k%d.jpg", stem, i)
+			outs[i] = fmt.Sprintf("%s-k%d%s", stem, i, ext)
 			if !nonEmpty(fileSize(outs[i])) {
 				complete = false
 			}
 		}
 		// A stray extra picture means the stream was split somewhere unexpected: do not trust the pairing.
-		if _, serr := os.Stat(fmt.Sprintf("%s-k%d.jpg", stem, len(streams))); serr == nil {
+		if _, serr := os.Stat(fmt.Sprintf("%s-k%d%s", stem, len(streams), ext)); serr == nil {
 			complete = false
 		}
 		if complete {
 			return outs, true
 		}
-		cleanFrames(stem, len(streams)+1)
+		cleanFrames(stem, len(streams)+1, ext)
 	}
 	return nil, false
 }
 
-func cleanFrames(stem string, n int) {
+func cleanFrames(stem string, n int, ext string) {
 	for i := 0; i < n; i++ {
-		_ = os.Remove(fmt.Sprintf("%s-k%d.jpg", stem, i))
+		_ = os.Remove(fmt.Sprintf("%s-k%d%s", stem, i, ext))
 	}
 }
 
 // grabSeek seeks to t seconds in a file or URL and writes one frame.
 func (t Tools) grabSeek(target string, at float64, out string) bool {
 	for _, vf := range []string{scale, scaleBT709} {
-		_, err := proc.Run(180*time.Second, nil, t.FFmpeg, "-v", "error", "-threads", "1", "-noaccurate_seek", "-ss", fmt.Sprintf("%.2f", at),
-			"-i", target, "-map", "0:v:0", "-frames:v", "1", "-vf", vf, "-q:v", "5", "-y", out)
+		a := []string{"-v", "error", "-threads", "1", "-noaccurate_seek", "-ss", fmt.Sprintf("%.2f", at), "-i", target, "-map", "0:v:0", "-frames:v", "1", "-vf", vf}
+		_, err := proc.Run(180*time.Second, nil, t.FFmpeg, append(append(a, t.format().frameArgs...), "-y", out)...)
 		if err != nil {
 			return false
 		}
@@ -119,7 +239,8 @@ func (t Tools) grabSeek(target string, at float64, out string) bool {
 
 // firstFrame writes the first video frame (or cover art) of a file, for audio files and images.
 func (t Tools) firstFrame(target, out string) bool {
-	_, err := proc.Run(120*time.Second, nil, t.FFmpeg, "-v", "error", "-i", target, "-map", "0:v:0?", "-frames:v", "1", "-vf", scale, "-q:v", "5", "-y", out)
+	a := []string{"-v", "error", "-i", target, "-map", "0:v:0?", "-frames:v", "1", "-vf", scale}
+	_, err := proc.Run(120*time.Second, nil, t.FFmpeg, append(append(a, t.format().frameArgs...), "-y", out)...)
 	return err == nil && nonEmpty(fileSize(out))
 }
 
@@ -173,7 +294,7 @@ func coverScore(path string) float64 {
 		return 0
 	}
 	defer f.Close()
-	img, err := jpeg.Decode(f)
+	img, _, err := image.Decode(f)
 	if err != nil {
 		if st, serr := f.Stat(); serr == nil {
 			return float64(st.Size())

@@ -1,8 +1,8 @@
 #!/bin/sh
 # Builds the desktop app: the same server with the UI in a native window (WebView2 / WKWebView / WebKitGTK).
 #
-#   scripts/build-desktop.sh [output]        needs a C/C++ compiler (cgo); on Linux also libgtk-3-dev and
-#                                            libwebkit2gtk-4.1-dev (or -4.0-dev); on Windows MinGW-w64 (gcc, g++)
+#   scripts/build-desktop.sh [output]        needs a C/C++ compiler (cgo) on macOS and Linux (Linux also libgtk-3-dev and
+#                                            libwebkit2gtk-4.1-dev); Windows needs only Go (see scripts/package-windows.ps1)
 set -eu
 cd "$(dirname "$0")/.."
 VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
@@ -21,5 +21,7 @@ case "$(go env GOOS)" in
       export PKG_CONFIG_PATH
     fi ;;
 esac
-CGO_ENABLED=1 go build -tags desktop -trimpath -ldflags "$LDFLAGS" -o "$OUT" ./cmd/medialib
+# Windows uses WebView2 from pure Go: no C compiler needed.
+CGO=1; [ "$(go env GOOS)" = windows ] && CGO=0
+CGO_ENABLED=$CGO go build -tags desktop -trimpath -ldflags "$LDFLAGS" -o "$OUT" ./cmd/medialib
 echo "built $OUT"

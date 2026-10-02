@@ -8,6 +8,7 @@ It runs as a **desktop app** on your own machine, or as a plain **web server** y
 
 **Library**
 - Folder tree, grouped cover grids with a floating full-path title, search, and sort by name, date, size or length.
+- **Search** (the box in the library, and `Ctrl+K` for every library at once): by name, folder, extension, codec or resolution (`hevc`, `4k`, `1080p`); Chinese, Japanese and any other script; Chinese by **pinyin**, full (`donghua`) or initials (`dh`); hiragana and katakana alike; fuzzy, so letters in order (`hldy`) and a slip of the keys (`holidya`) still find the file. Several words must all match. Names, folders and their pinyin are stored in the index as soon as files are listed, so files an indexing run has not reached yet are searchable already. Results are ranked by relevance (the sort box offers *Best match* while you search); `Enter` in the palette plays the file in your player, `Ctrl+Enter` shows it in its folder.
 - Five real keyframes per video; hover a cover to scrub through them. The indexer reads an MP4's own sample index and fetches only the bytes of the chosen keyframes (about 1 to 4 MB per video, even over the network). H.264, HEVC and AV1; other formats fall back to ffmpeg seeking. Indexing is incremental and multithreaded.
 - Libraries can be a local folder, a NAS share, or a bucket folder read straight through the S3 API.
 - Click a cover to open it in mpv, VLC, PotPlayer, MPC or the system default. Play a whole folder as a playlist, or copy its stream URL.
@@ -42,17 +43,25 @@ One program, one UI. Build it (`make server`, `make desktop`), or take a binary 
 medialib desktop              # or double-click medialib-desktop
 ```
 
-The UI in its own window (WebView2 on Windows, WebKit on macOS, WebKitGTK on Linux), talking to a server that lives and dies with the window. Settings and indexes live in your user config folder (`%AppData%\medialib`, `~/.config/medialib`).
+The UI in its own window, talking to a server that lives and dies with the window. Settings and indexes live in your user config folder (`%AppData%\medialib`, `~/.config/medialib`).
 
-Build it with `make desktop` (`scripts/build-desktop.sh`). It needs cgo:
+**Windows** gets a proper application: the system's WebView2 runtime driven from pure Go (no C compiler, no extra DLL), one window per user (starting it again raises the running one), the window comes back where you left it, the title bar follows the page's light or dark theme, links to other sites open in your browser, and there is an icon, DPI-aware manifest and version info. Without WebView2 it falls back to an Edge or Chrome app window. Take `medialib-setup-windows-*.exe` from the releases (per-user install, Start menu entry, optional desktop shortcut, optional ffmpeg via winget) or the portable `.zip`. To build them yourself:
+
+```powershell
+powershell -File scripts\package-windows.ps1            # needs Go; Inno Setup 6 for the installer
+```
+
+macOS and Linux use the platform web view (WKWebView, WebKitGTK) and need cgo: `make desktop` (`scripts/build-desktop.sh`).
 
 | Platform | Needs |
 |---|---|
-| Windows | MinGW-w64 (`gcc`, `g++`); WebView2 runtime (included in Windows 11) |
+| Windows | Go, and the WebView2 runtime (included in Windows 11) |
 | macOS | Xcode command line tools |
 | Linux | `libgtk-3-dev`, `libwebkit2gtk-4.1-dev` (or `-4.0-dev`) |
 
-The ordinary build (`make server`) has no native window; there `medialib desktop` borrows an app-mode window from Edge, Chrome or Chromium instead. File downloads from the Storage view are handled by the web view of your platform, so on Linux the browser is the better place to download.
+The ordinary build (`make server`) has no native window; there `medialib desktop` borrows an app-mode window from Edge, Chrome or Chromium instead.
+
+**Interface**: a collapsible sidebar (`Ctrl+B`) with your libraries and stores, a command palette (`Ctrl+K`) to jump anywhere or run a command, `Alt+1…5` for the sections, light/dark themes, and a welcome screen on first run.
 
 ### Web server
 
@@ -97,10 +106,11 @@ A library that was set up through rclone keeps working. **Library → Manage →
 |---|---|
 | `connections` | `{"id", "name", "provider", "endpoint", "region", "access_key", "secret_key" or "secret_key_env", "addressing": "path"/"virtual"/"auto", "verify_tls", "default_bucket"}` |
 | `libraries` | `{"type": "local", "path"}`, `{"type": "s3", "connection", "bucket", "prefix"}`, or the older `{"type": "rclone", "remote", "bucket", "prefix"}` |
-| `players` | Extra players, listed before the auto-detected ones. `title_arg` passes the file name as the window title. |
+| `players` | Extra players, listed before the auto-detected ones. `title_arg` passes the file name as the window title; `args` is a list of extra command-line arguments for every launch (for mpv, `["--demuxer-max-bytes=256MiB"]` keeps its read-ahead small). |
 | `default_player` | Player id used until you pick one in the UI |
 | `rclone`, `ffmpeg`, `ffprobe` | Executable paths, if they aren't on `PATH` |
 | `workers` | Files indexed at once. The default depends on the CPU count and the library type. |
+| `thumb_quality` | WebP quality (1 to 100) of new thumbnails. Default 60; lower is smaller. `medialib compact` converts older JPEG thumbnails. |
 | `password` | Password for a server other computers can reach; `MEDIALIB_PASSWORD` takes precedence. |
 
 `default_bucket` is for keys that are limited to one bucket and so cannot list all of them.

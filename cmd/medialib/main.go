@@ -19,6 +19,7 @@ const usage = `Media library and object-storage browser.
     medialib serve [--port 8766] [--host 127.0.0.1] [--no-browser]
     medialib desktop                                              the UI in its own window
     medialib index [--library ID] [--limit N] [--workers 8] [--force]
+    medialib compact [--library ID]                               convert JPEG thumbnails to WebP (about half the size)
     medialib add PATH [--name NAME]                               add a local folder (disk or NAS share)
     medialib libraries                                            list the libraries
     medialib connect --endpoint URL --access-key K ...            add an S3 / RustFS / MinIO / R2 ... connection

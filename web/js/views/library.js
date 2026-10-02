@@ -4,7 +4,7 @@ import { icon, kindIcon } from '../lib/icons.js';
 import { get, post, put } from '../lib/api.js';
 import { bytes, clock, collator, extOf, leaf, num, resLabel, span, stem, when } from '../lib/fmt.js';
 import { href, navigate, replace } from '../lib/router.js';
-import { loadLibraries, loadConnections, on, pokeWatcher, running, state } from '../lib/state.js';
+import { loadLibraries, loadConnections, on, pokeWatcher, running, state, takeLibraryAction } from '../lib/state.js';
 import { store } from '../lib/store.js';
 import { confirmDialog, contextMenu, modal, showMenu, toast, toastError } from '../lib/ui.js';
 import { locationPicker } from '../lib/picker.js';
@@ -19,12 +19,14 @@ const inScope = (it, s) => !s || it.dir === s || it.dir.startsWith(s + '/');
 const TYPE_LABEL = { local: 'Local folder', s3: 'S3 bucket', rclone: 'S3 via rclone' };
 
 const itemSort = {
+  rel: (a, b) => a.rank - b.rank,
   name: (a, b) => collator.compare(a.it.name, b.it.name),
   new: (a, b) => b.it.mtime.localeCompare(a.it.mtime) || collator.compare(a.it.name, b.it.name),
   size: (a, b) => b.it.size - a.it.size,
   dur: (a, b) => (b.it.duration || 0) - (a.it.duration || 0),
 };
 const groupSort = {
+  rel: (a, b) => a.best - b.best,
   name: (a, b) => (b.key === '') - (a.key === '') || collator.compare(a.key, b.key), // loose files first
   new: (a, b) => b.newest.localeCompare(a.newest),
   size: (a, b) => b.size - a.size,
@@ -36,16 +38,18 @@ export async function mount(root, parts) {
   const S = {
     lib: null, info: null, items: [], byId: new Map(), scope: '', q: '', sort: store.get('sort', 'name'),
     tree: null, nodes: new Map(), shown: [], hidden: defaultHidden(), visibleIds: [], player: null,
+    match: null, rank: null, sortAuto: true, pendingReveal: null,
   };
   try { const saved = store.get('hiddenTypes', null); if (saved) S.hidden = new Set(JSON.parse(saved)); } catch { /* keep the default */ }
 
-  const thumb = (it, i) => `/thumbs/${S.lib}/${it.id}-${it.ver}-${i}.jpg`;
+  const thumb = (it, i) => `/thumbs/${S.lib}/${it.id}-${it.ver}-${i}.avif`;
   const mediaUrl = it => `${location.origin}/media/${S.lib}/${it.id}/${encodeURIComponent(it.name)}`;
 
   // ---------------------------------------------------------------- skeleton
   const libBtn = h('button.btn.lib-switch', { type: 'button', 'aria-haspopup': 'menu', onclick: e => openSwitcher(e.currentTarget) });
   const qInput = h('input.input', { type: 'search', placeholder: 'Search names   ( / )', 'aria-label': 'Search names', autocomplete: 'off' });
-  const sortSel = h('select', { 'aria-label': 'Sort' }, [['name', 'Name'], ['new', 'Newest'], ['size', 'Largest'], ['dur', 'Longest']].map(([v, t]) => h('option', { value: v }, t)));
+  const sortSel = h('select', { 'aria-label': 'Sort' }, [['rel', 'Best match'], ['name', 'Name'], ['new', 'Newest'], ['size', 'Largest'], ['dur', 'Longest']].map(([v, t]) => h('option', { value: v }, t)));
+  if (S.sort === 'rel') S.sort = 'name'; // "Best match" only means something while searching
   sortSel.value = S.sort;
   const typesBtn = h('button.btn', { type: 'button', 'aria-haspopup': 'true', onclick: e => openTypes(e.currentTarget) }, icon('filter', 'sm'), h('span.types-label', 'Types'));
   const optBtn = h('button.btn.icon-only', { type: 'button', 'aria-label': 'View options', title: 'Player and cover size', onclick: e => openOptions(e.currentTarget) }, icon('sliders', 'sm'));
@@ -53,11 +57,11 @@ export async function mount(root, parts) {
   const ringBar = h('circle.ring-bar', { cx: 18, cy: 18, r: 15 });
   const ring = h('button.ring', { type: 'button', hidden: true, onclick: () => manageLibraries() },
     (() => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 36 36'); s.innerHTML = '<circle class="ring-track" cx="18" cy="18" r="15"/><circle class="ring-bar" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100"/>'; return s; })(), ringText);
-  const navToggle = h('button.icon-btn.nav-toggle', { type: 'button', 'aria-label': 'Show folders', onclick: () => navOpen(true) }, icon('menu'));
+  const navToggle = h('button.icon-btn.nav-toggle', { type: 'button', 'aria-label': 'Folders', title: 'Show or hide folders', 'aria-expanded': 'true', onclick: () => toggleTree() }, icon('folder'));
 
   const tree = h('ul.tree');
   const nav = h('aside.tree-pane', { 'aria-label': 'Folders' },
-    h('div.nav-head', h('span', 'Folders'), h('button.icon-btn', { type: 'button', 'aria-label': 'Close folders', onclick: () => navOpen(false) }, icon('x'))), tree);
+    h('div.nav-head', h('span', 'Folders'), h('button.icon-btn', { type: 'button', 'aria-label': 'Close folders', onclick: () => toggleTree() }, icon('x'))), tree);
   const scrim = h('div.scrim', { hidden: true, onclick: () => navOpen(false) });
 
   const banner = h('div.banner.lib-banner', { hidden: true });
@@ -74,6 +78,7 @@ export async function mount(root, parts) {
   const bar = h('header.lib-bar', navToggle, libBtn, h('div.search', icon('search', 'sm'), qInput), h('div.bar-spacer'), sortSel, typesBtn, optBtn, ring);
   const view = h('div.lib-view', bar, h('div.lib-body', nav, main), scrim);
   root.append(view);
+  if (store.get('treeClosed', '0') === '1') { view.classList.add('tree-closed'); navToggle.setAttribute('aria-expanded', 'false'); }
   const noLibs = h('div.page', { hidden: true }, h('div.page-inner', h('div.card-box.empty-state', icon('library'), h('h3', 'Add your first library'),
     h('p', 'A library is a folder on a disk or NAS share, or a folder in an object-store bucket. medialib indexes it and shows keyframe covers you can click to play.'),
     h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', marginTop: '8px' } },
@@ -163,6 +168,15 @@ export async function mount(root, parts) {
     const node = S.nodes.get(path);
     if (node && node.btn) { node.btn.classList.add('active'); node.btn.scrollIntoView({ block: 'nearest' }); }
   }
+  // Wide windows: the folder pane slides away and the covers get the room. Narrow ones: it is a drawer.
+  function toggleTree() {
+    if (matchMedia('(min-width: 861px)').matches) {
+      const closed = !view.classList.contains('tree-closed');
+      view.classList.toggle('tree-closed', closed);
+      store.set('treeClosed', closed ? '1' : '0');
+      navToggle.setAttribute('aria-expanded', String(!closed));
+    } else navOpen(!nav.classList.contains('open'));
+  }
   function navOpen(open) { nav.classList.toggle('open', open); scrim.hidden = !open; navToggle.setAttribute('aria-expanded', String(open)); }
 
   // ---------------------------------------------------------------- cards
@@ -191,34 +205,155 @@ export async function mount(root, parts) {
     return art;
   }
 
+  // Cards are made as they come near the screen. A library of ten thousand videos would otherwise build a hundred
+  // thousand elements before showing anything; this way the first screen costs a few dozen. A spacer, sized from an
+  // estimate of the cards still to come, keeps the scrollbar honest until they exist.
+  const CHUNK = 48, MAX_STEP = 400, GAP_X = 18, GAP_Y = 24, META_H = 66, AHEAD = 1600;
+  // Columns and row pitch come from the cards already on screen once there are two rows of them; until then a guess.
+  function layoutOf(grid, remaining) {
+    const cards = grid.getElementsByClassName('card');
+    if (cards.length > 1) {
+      const t0 = cards[0].offsetTop;
+      let cols = 1;
+      while (cols < cards.length && cards[cols].offsetTop === t0) cols++;
+      if (cols < cards.length) return { cols, rowH: cards[cols].offsetTop - t0 };
+      grid._cols = cols;
+    }
+    const w = Math.max(300, (groups.clientWidth || 1000) - 48);
+    const min = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--card-min')) || 230;
+    const cols = Math.max(1, Math.floor((w + GAP_X) / (min + GAP_X)));
+    return { cols, rowH: ((w - GAP_X * (cols - 1)) / cols) * 9 / 16 + META_H + GAP_Y };
+  }
+  const spacerHeight = (grid, remaining) => {
+    if (remaining <= 0) return 0;
+    const { cols, rowH } = layoutOf(grid);
+    return Math.ceil(remaining / cols) * rowH;
+  };
+  const fillIO = new IntersectionObserver(es => { for (const e of es) if (e.isIntersecting) pump(e.target); }, { root: main, rootMargin: `${AHEAD}px 0px` });
+  scope.add(() => fillIO.disconnect());
+  function makeGrid(entries) {
+    const grid = h('div.grid');
+    const spacer = h('div.spacer', { style: { gridColumn: '1 / -1' } });
+    Object.assign(grid, { _entries: entries, _next: 0, _spacer: spacer });
+    spacer._grid = grid;
+    grid.append(spacer);
+    spacer.style.height = spacerHeight(grid, entries.length) + 'px';
+    fillIO.observe(spacer);
+    return grid;
+  }
+  // Make the cards of a grid up to index end (exclusive) now.
+  function fillTo(grid, end) {
+    const spacer = grid._spacer, es = grid._entries;
+    end = Math.min(es.length, end);
+    const frag = document.createDocumentFragment();
+    for (let i = grid._next; i < end; i++) frag.append(card(es[i]));
+    grid.insertBefore(frag, spacer);
+    grid._next = end;
+    if (end >= es.length) { fillIO.unobserve(spacer); spacer.remove(); } else spacer.style.height = spacerHeight(grid, es.length - end) + 'px';
+  }
+  // Scroll to a file and flash it. Its card may not exist yet: the cards of its folder are made on the way.
+  function reveal(id) {
+    for (const grid of $$('.grid', groups)) {
+      const i = (grid._entries || []).findIndex(e => e.it.id === id);
+      if (i < 0) continue;
+      fillTo(grid, i + 1);
+      const el = grid.querySelector(`.card[data-id="${id}"]`);
+      if (!el) return false;
+      el.scrollIntoView({ block: 'center' });
+      el.classList.add('flash');
+      setTimeout(() => el.classList.remove('flash'), 2400);
+      return true;
+    }
+    return false;
+  }
+  // Reveal the pending file as soon as its folder is drawn. A render may still be under way (a big folder, a slow
+  // machine), so ask again for a couple of seconds before giving up.
+  function consumeReveal() {
+    const id = S.pendingReveal;
+    if (!id) return;
+    S.pendingReveal = null;
+    let tries = 0;
+    const attempt = () => {
+      if (reveal(id)) return;
+      if (++tries < 40) { setTimeout(attempt, 60); return; }
+      const it = S.byId.get(id);
+      toast(it && S.hidden.has(it.ext) ? 'That file is hidden by the type filter (Types menu)' : 'Could not find that file in this view');
+    };
+    setTimeout(attempt, 0);
+  }
+  function pump(spacer) {
+    const grid = spacer._grid;
+    const step = () => {
+      if (!grid.isConnected) return;
+      const es = grid._entries, { cols, rowH } = layoutOf(grid);
+      // How far the spacer's top is above the bottom of the area we want filled: that many pixels of rows, at once
+      // but not so many that one frame stalls.
+      const gap = main.getBoundingClientRect().bottom + AHEAD - spacer.getBoundingClientRect().top;
+      let count = Math.min(MAX_STEP, Math.max(CHUNK, Math.ceil(gap / rowH) * cols));
+      let end = Math.min(es.length, grid._next + count);
+      if (end < es.length && end % cols) end = Math.min(es.length, end + cols - (end % cols)); // whole rows
+      fillTo(grid, end);
+      if (end >= es.length) return;
+      // Still close to the screen: carry on. Otherwise the observer wakes us when the spacer comes within reach.
+      if (spacer.getBoundingClientRect().top < main.getBoundingClientRect().bottom + AHEAD) requestAnimationFrame(step);
+    };
+    step();
+  }
+
+  // The query is answered by the server (CJK, pinyin, typos, tags: see /api/search); until its answer arrives, or when it
+  // cannot answer, plain substring matching keeps the view usable.
   const currentList = () => {
     const s = S.scope, q = S.q.trim().toLowerCase();
+    if (q && S.match) return S.shown.filter(it => inScope(it, s) && S.match.has(it.id));
     return S.shown.filter(it => inScope(it, s) && (!q || it.name.toLowerCase().includes(q) || it.dir.toLowerCase().includes(q)));
   };
+  const effectiveSort = () => (S.match && S.q.trim() && (S.sortAuto || S.sort === 'rel') ? 'rel' : S.sort === 'rel' ? 'name' : S.sort);
+  const paintSort = () => { sortSel.value = S.match && S.q.trim() && S.sortAuto ? 'rel' : S.sort; };
+  let searchSeq = 0;
+  async function runSearch() {
+    const q = qInput.value, mine = ++searchSeq;
+    S.q = q;
+    if (!q.trim()) { S.match = S.rank = null; S.sortAuto = true; paintSort(); render(); return; }
+    try {
+      const j = await get(`/api/search?lib=${encodeURIComponent(S.lib)}&limit=0&ids=1&q=${encodeURIComponent(q)}`);
+      if (mine !== searchSeq) return;
+      S.match = new Set(j.ids);
+      S.rank = new Map(j.ids.map((id, i) => [id, i]));
+    } catch {
+      if (mine !== searchSeq) return;
+      S.match = S.rank = null;
+    }
+    paintSort();
+    render();
+  }
 
   function render() {
+    fillIO.disconnect(); // the spacers of the previous render
     const s = S.scope, list = currentList(), grp = new Map();
     for (const it of list) {
       const rel = it.dir === s ? '' : s ? it.dir.slice(s.length + 1) : it.dir;
       const key = rel.split('/')[0];
       let g = grp.get(key);
-      if (!g) grp.set(key, g = { key, entries: [], size: 0, dur: 0, newest: '' });
-      g.entries.push({ it, sub: rel.includes('/') ? rel.slice(key.length + 1) : '' });
+      if (!g) grp.set(key, g = { key, entries: [], size: 0, dur: 0, newest: '', best: 1e9 });
+      const rank = S.rank ? S.rank.get(it.id) ?? 1e9 : 0;
+      g.entries.push({ it, rank, sub: rel.includes('/') ? rel.slice(key.length + 1) : '' });
+      if (rank < g.best) g.best = rank;
       g.size += it.size;
       g.dur += it.duration || 0;
       if (it.mtime > g.newest) g.newest = it.mtime;
     }
     const frag = document.createDocumentFragment();
     S.visibleIds = [];
-    for (const g of [...grp.values()].sort(groupSort[S.sort])) {
-      g.entries.sort(itemSort[S.sort]);
+    const how = effectiveSort();
+    for (const g of [...grp.values()].sort(groupSort[how])) {
+      g.entries.sort(itemSort[how]);
       const ids = g.entries.map(e => e.it.id);
       S.visibleIds.push(...ids);
       const t = groupPath(s, g.key);
       const pb = h('button.btn.small', { type: 'button', 'aria-label': 'Play all in ' + t.title, onclick: () => play(ids) }, icon('play', 'sm'), 'Play');
       // A group without a key holds the files that sit directly in the folder being viewed.
       frag.append(h('section.group', h('header.ghead', t, h('span.gstats', `${g.key ? '' : 'files directly here · '}${g.entries.length} · ${span(g.dur)} · ${bytes(g.size)}`), pb),
-        h('div.grid', g.entries.map(card))));
+        makeGrid(g.entries)));
     }
     pathIO.disconnect();
     onScreen.clear();
@@ -298,6 +433,7 @@ export async function mount(root, parts) {
     paintTypes();
     paintBanner();
     paintSwitch();
+    if (S.q.trim()) runSearch(); // files may have arrived
   }
   function rebuildView(keepView, scopePath = S.scope) {
     S.shown = S.hidden.size ? S.items.filter(it => !S.hidden.has(it.ext)) : S.items;
@@ -316,11 +452,14 @@ export async function mount(root, parts) {
   async function switchLibrary(id, path = '') {
     S.lib = id;
     S.q = '';
+    S.match = S.rank = null;
+    S.sortAuto = true;
+    searchSeq++;
     qInput.value = '';
     S.scope = path;
     post('/api/libraries/active', { id }).catch(() => {});
-    await loadLibrary();
-    applyScope(path);
+    groups.classList.add('busy');
+    try { await loadLibrary(); } finally { groups.classList.remove('busy'); }
   }
 
   // ---------------------------------------------------------------- library switcher + manager
@@ -511,6 +650,22 @@ export async function mount(root, parts) {
 
   // Refresh the open library's covers as indexing lands them, and once more when a run finishes.
   let prevJobs = JSON.parse(JSON.stringify(state.jobs)), lastRefresh = 0;
+  const runRequested = () => {
+    const a = takeLibraryAction();
+    if (!a) return;
+    if (a.name === 'add') addLibrary();
+    else if (a.name === 'manage') manageLibraries();
+    else if (a.name === 'reveal') {
+      // The caller has navigated to the file's folder. Drop any search so the file is in view, then scroll to it:
+      // now if this view already shows that folder, otherwise when the pending update has drawn it.
+      const { lib, dir, id } = a.arg;
+      qInput.value = '';
+      S.q = ''; S.match = S.rank = null; S.sortAuto = true; searchSeq++;
+      S.pendingReveal = id;
+      if (S.lib === lib && S.scope === dir) { render(); consumeReveal(); }
+    }
+  };
+  scope.on(document, 'medialib:library-action', runRequested);
   scope.add(on('activity', () => {
     const before = prevJobs[S.lib], now = state.jobs[S.lib];
     const anyFinished = Object.keys(state.jobs).some(id => running(prevJobs[id]) && !running(state.jobs[id]));
@@ -629,8 +784,13 @@ export async function mount(root, parts) {
   groups.addEventListener('pointermove', onPointerMove);
   groups.addEventListener('pointerleave', stopScrub);
 
-  qInput.addEventListener('input', debounce(() => { S.q = qInput.value; render(); }, 150));
-  sortSel.addEventListener('change', () => { S.sort = sortSel.value; store.set('sort', S.sort); render(); });
+  qInput.addEventListener('input', debounce(runSearch, 120));
+  sortSel.addEventListener('change', () => {
+    S.sort = sortSel.value;
+    S.sortAuto = false; // the person chose: stop switching to best match by itself
+    if (S.sort !== 'rel') store.set('sort', S.sort);
+    render();
+  });
   scope.on(document, 'keydown', e => {
     if (e.key === '/' && !/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName) && !document.querySelector('dialog[open]')) { e.preventDefault(); qInput.focus(); }
     if (e.key === 'Escape') navOpen(false);
@@ -651,9 +811,12 @@ export async function mount(root, parts) {
     try {
       if (wanted !== S.lib) { await switchLibrary(wanted, path.join('/')); paintSwitch(); }
       else applyScope(path.join('/'));
+      consumeReveal();
     } catch (e) { toastError('Could not load the library', e); }
   }
   await update(parts);
   paintSwitch();
-  return { update, destroy() { scope.dispose(); typesMenu && typesMenu.close(); document.title = 'Media Library'; } };
+  // runRequested (a dialog or a reveal someone asked for) waits for ready(): the router calls it once this view is the
+  // current one. A view that was superseded while it loaded is destroyed instead and must not take the request.
+  return { update, ready: runRequested, destroy() { scope.dispose(); typesMenu && typesMenu.close(); document.title = 'Media Library'; } };
 }

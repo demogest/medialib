@@ -17,7 +17,12 @@ export function h(spec, props, ...children) {
     if (v == null || v === false) continue;
     if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'class') el.className += (el.className ? ' ' : '') + v;
-    else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+    else if (k === 'style' && typeof v === 'object') {
+      // Custom properties ('--x') are ignored by plain property assignment; they need setProperty.
+      for (const [name, val] of Object.entries(v)) {
+        if (name.startsWith('--')) el.style.setProperty(name, val); else el.style[name] = val;
+      }
+    }
     else if (k === 'dataset') Object.assign(el.dataset, v);
     else if (k === 'value' || k === 'checked' || k === 'disabled' || k === 'hidden' || k === 'selected') el[k] = v;
     else el.setAttribute(k, v === true ? '' : v);

@@ -264,9 +264,10 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 		keep[r.ID+"-"+r.Ver] = true
 	}
 	orphans := 0
-	if files, err := filepath.Glob(filepath.Join(thumbs, "*.jpg")); err == nil {
+	for _, ext := range thumbExts {
+		files, _ := filepath.Glob(filepath.Join(thumbs, "*"+ext))
 		for _, p := range files {
-			stem := strings.TrimSuffix(filepath.Base(p), ".jpg")
+			stem := strings.TrimSuffix(filepath.Base(p), ext)
 			if i := strings.LastIndex(stem, "-"); i >= 0 && !keep[stem[:i]] {
 				if os.Remove(p) == nil {
 					orphans++
@@ -286,11 +287,13 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 func indexItem(tools Tools, source Source, thumbs string, item Item) (Item, error) {
 	rec := item
 	base := item.ID + "-" + item.Ver
-	if old, _ := filepath.Glob(filepath.Join(thumbs, base+"-*.jpg")); len(old) > 0 {
+	for _, ext := range thumbExts {
+		old, _ := filepath.Glob(filepath.Join(thumbs, base+"-*"+ext))
 		for _, p := range old {
 			_ = os.Remove(p)
 		}
 	}
+	ext := tools.FrameExt()
 	stem := filepath.Join(thumbs, base)
 	reader, err := source.Reader(item)
 	if err != nil {
@@ -326,7 +329,7 @@ func indexItem(tools Tools, source Source, thumbs string, item Item) (Item, erro
 					grab := func(i int, f float64) {
 						frameSem <- struct{}{}
 						defer func() { <-frameSem }()
-						out := fmt.Sprintf("%s-k%d.jpg", stem, i)
+						out := fmt.Sprintf("%s-k%d%s", stem, i, ext)
 						if tools.grabSeek(reader.Target(), meta.Duration*f, out) {
 							outs[i] = out
 						}
@@ -339,7 +342,7 @@ func indexItem(tools Tools, source Source, thumbs string, item Item) (Item, erro
 					go func(i int, f float64) { defer wg.Done(); grab(i, f) }(i, f)
 				}
 				wg.Wait()
-				paths = numberFrames(stem, outs)
+				paths = numberFrames(stem, outs, ext)
 			}
 		}
 	} else {
@@ -347,7 +350,7 @@ func indexItem(tools Tools, source Source, thumbs string, item Item) (Item, erro
 		if err != nil {
 			return rec, err
 		}
-		out := stem + "-0.jpg"
+		out := stem + "-0" + ext
 		if tools.firstFrame(reader.Target(), out) {
 			paths = append(paths, out)
 		}
@@ -364,6 +367,7 @@ func indexItem(tools Tools, source Source, thumbs string, item Item) (Item, erro
 		}
 		rec.Cover = &best
 	}
+	tools.Finalize(paths) // frames written as JPEG become AVIF once the cover is chosen
 	rec.Indexed = true
 	if note != "" && isMP4(item.Name) {
 		rec.Note = note

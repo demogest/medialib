@@ -21,6 +21,7 @@ type Player struct {
 	Name     string
 	Path     string
 	TitleArg string // {title} is replaced by the file name when a single item is opened
+	Args     []string // extra arguments, put before the file (from "args" in config.json)
 }
 
 type known struct {
@@ -75,7 +76,7 @@ func Detect(extra []config.Player) []Player {
 		} else if w := which(path); w != "" {
 			path = w
 		}
-		pl := Player{ID: p.ID, Name: p.Name, Path: p.Path}
+		pl := Player{ID: p.ID, Name: p.Name, Path: p.Path, Args: p.Args}
 		if p.TitleArg != nil {
 			pl.TitleArg = *p.TitleArg
 		}
@@ -157,12 +158,12 @@ func Launch(list []Player, id string, entries []Entry, playlistFile string) (str
 	if player.ID == "system" {
 		cmd = openDefault(target)
 	} else {
-		args := []string{}
+		args := append([]string{}, player.Args...)
 		if len(entries) == 1 && player.TitleArg != "" {
 			args = append(args, strings.ReplaceAll(player.TitleArg, "{title}", entries[0].Name))
 		}
 		cmd = exec.Command(player.Path, append(args, target)...)
-		proc.Hide(cmd)
+		proc.NoConsole(cmd) // not Hide: that would start the player's own window hidden
 	}
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("Could not start %s: %w", player.Name, err)
@@ -184,7 +185,7 @@ func openDefault(target string) *exec.Cmd {
 	switch runtime.GOOS {
 	case "windows":
 		c := exec.Command("rundll32", "url.dll,FileProtocolHandler", target)
-		proc.Hide(c)
+		proc.NoConsole(c)
 		return c
 	case "darwin":
 		return exec.Command("open", target)

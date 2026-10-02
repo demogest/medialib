@@ -50,6 +50,8 @@ func run(cmd string, args []string) error {
 		return cmdServe(cfg, args, "server")
 	case "desktop":
 		return cmdServe(cfg, args, "desktop")
+	case "compact":
+		return cmdCompact(cfg, args)
 	case "index":
 		return cmdIndex(cfg, args)
 	case "add":
@@ -99,6 +101,37 @@ func cmdIndex(cfg *config.Config, args []string) error {
 	defer stop()
 	ix := &media.Indexer{Cfg: cfg, Clients: config.NewClients(cfg)}
 	return ix.Run(ctx, lib, media.Options{Workers: *workers, Limit: *limit, Force: *force}, printer{})
+}
+
+// cmdCompact converts the JPEG thumbnails of version 3.0 to WebP, about half the size, without reading any media.
+func cmdCompact(cfg *config.Config, args []string) error {
+	fs := flag.NewFlagSet("compact", flag.ContinueOnError)
+	id := fs.String("library", "", "library id (default: every library)")
+	workers := fs.Int("workers", 0, "conversions at once")
+	if _, err := parse(fs, args); err != nil {
+		return err
+	}
+	var libs []config.Library
+	if *id != "" {
+		lib, ok := cfg.Library(*id)
+		if !ok {
+			return fmt.Errorf("Unknown library %q", *id)
+		}
+		libs = []config.Library{lib}
+	} else {
+		libs = cfg.Libraries()
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	for _, lib := range libs {
+		fmt.Printf("%s [%s]\n", lib.Name, lib.ID)
+		res, err := media.CompactThumbs(ctx, cfg, lib, *workers, func(done, total int) { fmt.Printf("\r  %d / %d", done, total) })
+		fmt.Printf("\r  %s\n", media.FormatCompact(res))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func cmdAdd(cfg *config.Config, args []string) error {

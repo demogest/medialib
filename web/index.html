@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="/static/css/library.css">
 <link rel="stylesheet" href="/static/css/storage.css">
 <link rel="stylesheet" href="/static/css/pages.css">
+<link rel="stylesheet" href="/static/css/shell.css">
 <script>
   // Apply the saved theme before the first paint so there is no flash.
   try { const t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) { /* default */ }
@@ -18,7 +19,7 @@
 </head>
 <body>
 <div class="shell" id="shell">
-  <nav class="rail" id="rail" aria-label="Sections"></nav>
+  <aside class="side" id="rail"></aside>
   <main class="view" id="view"></main>
 </div>
 <script type="module" src="/static/js/main.js"></script>

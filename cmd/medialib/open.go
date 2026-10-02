@@ -18,7 +18,7 @@ func openBrowser(url string) {
 	default:
 		cmd = exec.Command("xdg-open", url)
 	}
-	proc.Hide(cmd)
+	proc.NoConsole(cmd)
 	if cmd.Start() == nil {
 		go func() { _ = cmd.Wait() }()
 	}

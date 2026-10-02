@@ -371,7 +371,7 @@ func MakeSource(cfg *config.Config, clients *config.Clients, lib config.Library)
 // ToolsOf reads the external program names from the config.
 func ToolsOf(cfg *config.Config) Tools {
 	s := cfg.Settings()
-	return Tools{FFmpeg: orDefault(s.FFmpeg, "ffmpeg"), FFprobe: orDefault(s.FFprobe, "ffprobe"), Rclone: orDefault(s.Rclone, "rclone")}
+	return Tools{FFmpeg: orDefault(s.FFmpeg, "ffmpeg"), FFprobe: orDefault(s.FFprobe, "ffprobe"), Rclone: orDefault(s.Rclone, "rclone"), Quality: s.ThumbQuality}
 }
 
 func orDefault(v, d string) string {

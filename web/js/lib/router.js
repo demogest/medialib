@@ -34,7 +34,13 @@ export function startRouter({ root, views, fallback, onChange }) {
       name = view;
       const mod = await views[view]();
       if (mine !== token) return;  // another navigation won while the module was loading
-      current = await mod.mount(root, parts);
+      const inst = await mod.mount(root, parts);
+      // Another navigation won while this view was loading (a view may redirect while it mounts, and the first
+      // visit does). It never became the current view, so nothing else would ever destroy it: do it here, or its
+      // listeners live on and answer requests meant for the real one.
+      if (mine !== token) { if (inst && inst.destroy) inst.destroy(); return; }
+      current = inst;
+      if (inst && inst.ready) inst.ready();   // for what the view may only do once it is the current one
     }
     onChange && onChange(view, parts);
   }

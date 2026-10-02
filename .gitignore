@@ -3,6 +3,8 @@ cache/
 config.json
 config.tmp
 window-profile/
+webview2/
+window.json
 *.log
 # build output
 dist/

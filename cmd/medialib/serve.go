@@ -22,6 +22,9 @@ import (
 func isLoopbackHost(h string) bool { return h == "127.0.0.1" || h == "localhost" || h == "::1" }
 
 func cmdServe(cfg *config.Config, args []string, mode string) error {
+	if mode == "desktop" && !desktopPreflight() {
+		return nil // another window of the app is already running and has been brought to the front
+	}
 	fs := flag.NewFlagSet(mode, flag.ContinueOnError)
 	port := fs.Int("port", 0, "")
 	host := fs.String("host", "127.0.0.1", "")

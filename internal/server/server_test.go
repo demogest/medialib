@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -235,3 +236,53 @@ func TestThumbnailNamesAreValidated(t *testing.T) {
 }
 
 func quote(s string) string { b, _ := json.Marshal(s); return string(b) }
+
+func TestThumbnailFormats(t *testing.T) {
+	e := setup(t, true)
+	lib := e.cfg.Libraries()[0]
+	dir := filepath.Join(e.cfg.LibDir(lib), "thumbs")
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "0123456789ab-0123456789-0.jpg"), []byte{0xFF, 0xD8}, 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "0123456789ab-0123456789-1.webp"), []byte("RIFFxxxxWEBP"), 0o644)
+	// the page asks for .avif; whatever older format exists under that name answers it
+	if rec := e.do("GET", "/thumbs/"+lib.ID+"/0123456789ab-0123456789-0.avif", ""); rec.Code != 200 || rec.Header().Get("Content-Type") != "image/jpeg" {
+		t.Errorf("jpg behind a .webp URL: %d %s", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	if rec := e.do("GET", "/thumbs/"+lib.ID+"/0123456789ab-0123456789-1.avif", ""); rec.Code != 200 || rec.Header().Get("Content-Type") != "image/webp" {
+		t.Errorf("webp: %d %s", rec.Code, rec.Header().Get("Content-Type"))
+	}
+}
+
+func TestSearchFindsMediaByTextPinyinAndTypos(t *testing.T) {
+	e := setup(t, true)
+	folder := t.TempDir()
+	add := decode(t, e.do("POST", "/api/libraries", `{"path": `+quote(folder)+`, "name": "Clips"}`))
+	lib, _ := e.cfg.Library(add["id"].(string))
+	recs := map[string]media.Item{}
+	for _, f := range [][2]string{{"3D区DOA动画整合计划.mp4", "3D"}, {"holiday photos.mp4", "travel/iceland"}, {"天平キツネ.mkv", "天平キツネ"}} {
+		key := f[1] + "/" + f[0]
+		it := media.NewItem(key, f[0], f[1], "video", 10, "2026-01-01T00:00:00Z")
+		it.Indexed, it.Height, it.Codec = true, 1080, "avc1"
+		recs[it.ID] = it
+	}
+	if _, err := media.SaveLibrary(e.cfg, lib, recs, nil); err != nil {
+		t.Fatal(err)
+	}
+	for q, want := range map[string]string{
+		"动画": "3D区DOA动画整合计划.mp4", "donghua": "3D区DOA动画整合计划.mp4", "dhzh": "3D区DOA动画整合计划.mp4",
+		"きつね": "天平キツネ.mkv", "holidya": "holiday photos.mp4", "iceland": "holiday photos.mp4",
+	} {
+		got := decode(t, e.do("GET", "/api/search?q="+url.QueryEscape(q), ""))
+		res, _ := got["results"].([]any)
+		if len(res) == 0 || res[0].(map[string]any)["name"] != want {
+			t.Errorf("%q: %v", q, got)
+		}
+	}
+	got := decode(t, e.do("GET", "/api/search?lib="+lib.ID+"&ids=1&limit=0&q=1080p", ""))
+	if ids, _ := got["ids"].([]any); len(ids) != 3 {
+		t.Errorf("by tag: %v", got)
+	}
+	if got := decode(t, e.do("GET", "/api/search?q=", "")); got["total"] != float64(0) {
+		t.Errorf("empty query: %v", got)
+	}
+}

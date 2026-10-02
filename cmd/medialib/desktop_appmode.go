@@ -1,5 +1,3 @@
-//go:build !desktop
-
 package main
 
 import (
@@ -13,10 +11,9 @@ import (
 	"github.com/demogest/medialib/internal/proc"
 )
 
-// runDesktop shows the UI in its own window. This build has no embedded web view, so it borrows the app mode of
-// Edge, Chrome or Chromium (a window with no tabs or address bar, its own profile). Build with `-tags desktop` for
-// a native window instead (see README).
-func runDesktop(url string) error {
+// runAppMode shows the UI in an app-mode window of Edge, Chrome or Chromium (no tabs or address bar, its own
+// profile). It is the desktop window of the plain build, and the fallback of the native one.
+func runAppMode(url string) error {
 	browser := findAppBrowser()
 	if browser == "" {
 		fmt.Println("No Edge, Chrome or Chromium found for an app window; opening your browser instead. Press Ctrl+C to stop.")
@@ -26,7 +23,7 @@ func runDesktop(url string) error {
 	}
 	profile := filepath.Join(config.Home(), "window-profile")
 	cmd := exec.Command(browser, "--app="+url, "--user-data-dir="+profile, "--no-first-run", "--no-default-browser-check", "--window-size=1360,860")
-	proc.Hide(cmd)
+	proc.NoConsole(cmd) // the app window must be shown
 	if err := cmd.Start(); err != nil {
 		return err
 	}

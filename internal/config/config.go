@@ -26,6 +26,8 @@ type Player struct {
 	Name     string  `json:"name"`
 	Path     string  `json:"path"`
 	TitleArg *string `json:"title_arg,omitempty"`
+	// Args are extra command-line arguments for every launch, e.g. ["--demuxer-max-bytes=256MiB"] to keep mpv's read-ahead small.
+	Args []string `json:"args,omitempty"`
 }
 
 // Library is a local folder, a bucket folder read through the S3 API, or (older) an rclone remote folder.
@@ -76,6 +78,7 @@ type Settings struct {
 	Players       []Player
 	Workers       int
 	Password      string
+	ThumbQuality  int // WebP quality of new thumbnails, 1-100 (0: the default)
 }
 
 type data struct {
@@ -90,6 +93,7 @@ type data struct {
 	Libraries     []Library    `json:"libraries"`
 	Workers       int          `json:"workers,omitempty"`
 	Password      string       `json:"password,omitempty"`
+	ThumbQuality  int          `json:"thumb_quality,omitempty"`
 }
 
 // Config is config.json held in memory. It is safe for concurrent use; read it through the accessors.
@@ -201,7 +205,7 @@ func (c *Config) fromMap(m map[string]json.RawMessage) error {
 	fields := map[string]any{
 		"rclone": &d.Rclone, "ffmpeg": &d.FFmpeg, "ffprobe": &d.FFprobe, "port": &d.Port, "default_player": &d.DefaultPlayer,
 		"players": &d.Players, "active": &d.Active, "connections": &d.Connections, "libraries": &d.Libraries,
-		"workers": &d.Workers, "password": &d.Password,
+		"workers": &d.Workers, "password": &d.Password, "thumb_quality": &d.ThumbQuality,
 	}
 	if _, ok := m["libraries"]; ok {
 		d.Libraries = nil
@@ -314,7 +318,7 @@ func (c *Config) Settings() Settings {
 		pw = env
 	}
 	return Settings{Rclone: c.d.Rclone, FFmpeg: c.d.FFmpeg, FFprobe: c.d.FFprobe, Port: c.d.Port, DefaultPlayer: c.d.DefaultPlayer,
-		Players: append([]Player(nil), c.d.Players...), Workers: c.d.Workers, Password: pw}
+		Players: append([]Player(nil), c.d.Players...), Workers: c.d.Workers, Password: pw, ThumbQuality: c.d.ThumbQuality}
 }
 
 // Libraries returns a copy of the library list.

@@ -124,9 +124,13 @@ func TestIndexesALocalLibrary(t *testing.T) {
 			t.Errorf("%s: %+v", it.Key, it)
 		}
 		for i := 0; i < it.Frames; i++ {
-			p := filepath.Join(cfg.LibDir(lib), "thumbs", it.ID+"-"+it.Ver+"-"+itoa(i)+".jpg")
-			if b, err := os.ReadFile(p); err != nil || len(b) < 2 || b[0] != 0xFF || b[1] != 0xD8 {
-				t.Errorf("%s is not a JPEG: %v", p, err)
+			p := filepath.Join(cfg.LibDir(lib), "thumbs", it.ID+"-"+it.Ver+"-"+itoa(i)+ToolsOf(cfg).Ext())
+			b, err := os.ReadFile(p)
+			isJPEG := len(b) > 2 && b[0] == 0xFF && b[1] == 0xD8
+			isWebP := len(b) > 12 && string(b[:4]) == "RIFF" && string(b[8:12]) == "WEBP"
+			isAVIF := len(b) > 12 && string(b[4:8]) == "ftyp" && strings.HasPrefix(string(b[8:16]), "avi")
+			if err != nil || !(isJPEG || isWebP || isAVIF) || len(b) > 40000 {
+				t.Errorf("%s is not a small AVIF, WebP or JPEG: %v (%d bytes)", p, err, len(b))
 			}
 		}
 		fast := strings.HasSuffix(it.Name, ".mp4")
@@ -148,7 +152,7 @@ func TestIndexesALocalLibrary(t *testing.T) {
 	if len(d.Items) != 1 || d.Items[0].Name != "other.mkv" {
 		t.Fatalf("after removal: %+v", d.Items)
 	}
-	left, _ := filepath.Glob(filepath.Join(cfg.LibDir(lib), "thumbs", "*.jpg"))
+	left, _ := filepath.Glob(filepath.Join(cfg.LibDir(lib), "thumbs", "*.*"))
 	for _, p := range left {
 		if !strings.HasPrefix(filepath.Base(p), d.Items[0].ID) {
 			t.Errorf("stale thumbnail %s", p)

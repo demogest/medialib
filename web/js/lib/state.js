@@ -14,6 +14,15 @@ export const state = {
   tasks: [],    // copy / move / delete / size tasks
 };
 
+// Actions only the library view can run (its dialogs live there). Asking from anywhere: the view picks the request
+// up when it is already open (the event) or as soon as it has mounted (the pending name).
+let pendingLibraryAction = null;
+export function requestLibraryAction(name, arg) {
+  pendingLibraryAction = { name, arg };
+  document.dispatchEvent(new CustomEvent('medialib:library-action'));
+}
+export function takeLibraryAction() { const a = pendingLibraryAction; pendingLibraryAction = null; return a; }
+
 export const running = job => !!job && ['waiting', 'listing', 'indexing'].includes(job.state);
 
 export async function loadLibraries() {

@@ -52,6 +52,7 @@ func (a *App) Handler(web fs.FS) http.Handler {
 	// libraries
 	def("GET /api/libraries", open, a.listLibraries)
 	def("GET /api/library", open, a.getLibrary)
+	def("GET /api/search", open, a.searchMedia)
 	def("GET /api/index", open, func(c *Ctx) (any, error) { return map[string]any{"jobs": a.Jobs()}, nil })
 	def("GET /api/players", open, func(c *Ctx) (any, error) {
 		list := make([]map[string]any, len(a.Players))
@@ -335,7 +336,7 @@ func notFound(c *Ctx) error {
 	return nil
 }
 
-var thumbName = regexp.MustCompile(`^[0-9a-f]{12}-[0-9a-f]{10}-\d+\.jpg$`)
+var thumbName = regexp.MustCompile(`^[0-9a-f]{12}-[0-9a-f]{10}-\d+\.(avif|webp|jpg)$`)
 var libID = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 func (a *App) thumb(c *Ctx) (any, error) {
@@ -343,13 +344,23 @@ func (a *App) thumb(c *Ctx) (any, error) {
 	if !ok || !libID.MatchString(c.P("lib")) || !thumbName.MatchString(c.P("name")) {
 		return nil, notFound(c)
 	}
-	f, err := os.Open(path.Join(a.Cfg.LibDir(lib), "thumbs", c.P("name")))
-	if err != nil {
+	// The page asks for .avif. A thumbnail made before AVIF (WebP, JPEG) answers to the same name.
+	name := c.P("name")
+	stem := strings.TrimSuffix(name, path.Ext(name))
+	var f *os.File
+	var err error
+	for _, ext := range []string{path.Ext(name), ".avif", ".webp", ".jpg"} {
+		if f, err = os.Open(path.Join(a.Cfg.LibDir(lib), "thumbs", stem+ext)); err == nil {
+			name = stem + ext
+			break
+		}
+	}
+	if f == nil || err != nil {
 		return nil, notFound(c)
 	}
 	defer f.Close()
 	st, _ := f.Stat()
-	c.W.Header().Set("Content-Type", "image/jpeg")
+	c.W.Header().Set("Content-Type", map[string]string{".avif": "image/avif", ".webp": "image/webp", ".jpg": "image/jpeg"}[path.Ext(name)])
 	c.W.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.ServeContent(c.W, c.R, c.P("name"), st.ModTime(), f)
 	return nil, nil
