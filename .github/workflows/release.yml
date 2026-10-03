@@ -1,8 +1,9 @@
 # Builds every download and publishes them as one GitHub release, with notes and checksums.
 #
-# Pushing a v* tag releases it. Running the workflow by hand (Actions > release > Run workflow) is a dry run: it builds
-# everything and writes the notes and checksums, keeps them as the run's artifacts and shows the notes on the run's
-# page, but publishes nothing.
+# Pushing a v* tag releases it. So does running the workflow by hand (Actions > release > Run workflow) on main with
+# "publish" ticked: the release and its tag are made on the commit the run built. Without "publish" a run by hand is a
+# dry run: it builds everything and writes the notes and checksums, keeps them as the run's artifacts and shows the
+# notes on the run's page, but publishes nothing.
 name: release
 on:
   push:
@@ -10,15 +11,35 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to try, e.g. v3.2.0 (nothing is published)"
+        description: "Version, e.g. v3.2.0"
         required: true
         default: v0.0.0-dryrun
+      publish:
+        description: "Publish it: tag main's commit with the version and release it (otherwise a dry run)"
+        type: boolean
+        default: false
+# One run per version at a time: a second one waits, then finds the version released and stops at the check.
+concurrency:
+  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.version }}
 permissions:
   contents: read
 env:
   VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
 jobs:
+  # A release by hand is checked before anything is built: from main, a plain version number, not released yet.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - if: github.event_name == 'workflow_dispatch' && inputs.publish
+        run: |
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::releases are made from main, not $GITHUB_REF"; exit 1; }
+          echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::$VERSION is not a version like v3.2.0"; exit 1; }
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null; then
+            echo "::error::$VERSION is already tagged"; exit 1
+          fi
   server:
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +50,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: server, path: dist/*, if-no-files-found: error }
   windows:
+    needs: check
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +66,7 @@ jobs:
             dist/medialib-setup-*.exe
             dist/medialib-desktop-windows-*.zip
   desktop:
+    needs: check
     strategy:
       matrix:
         include:
@@ -72,6 +95,9 @@ jobs:
       # actions/checkout can leave an annotated tag as a plain one, which would lose its message for the notes
       - if: github.event_name == 'push'
         run: git fetch --force origin "refs/tags/$VERSION:refs/tags/$VERSION"
+      # a release by hand: tagged here for the notes, and on GitHub along with the release below
+      - if: github.event_name == 'workflow_dispatch' && inputs.publish
+        run: git tag "$VERSION" "$GITHUB_SHA"
       - uses: actions/download-artifact@v4
         with: { path: build, merge-multiple: true }
       # the builds' own outputs become medialib-<version>-<os>-<arch>[-<kind>] archives (scripts/package-release.sh)
@@ -82,13 +108,15 @@ jobs:
           sh scripts/release-notes.sh "$VERSION" dist > release-notes.md
           { echo "# $VERSION"; echo; cat release-notes.md; echo; echo '```'; cat dist/SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           ls -l dist
-      - if: github.event_name == 'push'
+      - if: github.event_name == 'push' || inputs.publish
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
           body_path: release-notes.md
           files: dist/*
           fail_on_unmatched_files: true
-      - if: github.event_name != 'push'
+      - if: github.event_name != 'push' && !inputs.publish
         uses: actions/upload-artifact@v4
         with:
           name: release-preview

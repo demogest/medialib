@@ -2,4 +2,4 @@
 package version
 
 // Version of medialib.
-var Version = "3.1.0-dev"
+var Version = "3.2.0-dev"
