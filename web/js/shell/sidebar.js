@@ -46,6 +46,7 @@ export function buildSidebar(root, { onSearch }) {
   const libs = h('div.side-list', { id: 'side-libs' });
   const conns = h('div.side-list', { id: 'side-conns' });
   const themeBtn = h('button.nav-item', { type: 'button', id: 'theme', onclick: toggleTheme });
+  const updateBtn = h('a.nav-item.update-pill', { href: href('settings'), hidden: true });
 
   root.append(
     h('div.app-head',
@@ -61,7 +62,7 @@ export function buildSidebar(root, { onSearch }) {
       libs,
       h('div.side-group', h('span.nav-label', 'Stores'), h('button.mini', { type: 'button', 'aria-label': 'Add a connection', title: 'Add a connection', onclick: () => navigate('connections') }, icon('plus', 'sm'))),
       conns),
-    h('div.app-foot', themeBtn, item(SECTIONS[4], 5)),
+    h('div.app-foot', updateBtn, themeBtn, item(SECTIONS[4], 5)),
   );
   const expand = h('button.icon-btn.expand', { type: 'button', 'aria-label': 'Expand sidebar', title: 'Expand sidebar (Ctrl+B)', onclick: toggleSidebar }, icon('chevron-right', 'sm'));
   root.append(expand);
@@ -101,7 +102,16 @@ export function buildSidebar(root, { onSearch }) {
       if (on_) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
     }
   }
-  on('libraries', paintLists); on('connections', paintLists); on('activity', paintBadge);
+  // A newer version: say so where it is seen, and lead to Settings, where it is installed.
+  const paintUpdate = () => {
+    const u = state.update, show = !!u && (u.available || u.ready);
+    updateBtn.hidden = !show;
+    if (!show) return;
+    const label = u.ready ? 'Restart to update' : u.state === 'downloading' ? `Downloading ${u.latest}…` : `Update to ${u.latest}`;
+    updateBtn.title = `${label}: medialib ${u.current} → ${u.latest}`;
+    updateBtn.replaceChildren(icon(u.ready ? 'refresh' : 'download'), h('span.nav-label', label));
+  };
+  on('libraries', paintLists); on('connections', paintLists); on('activity', paintBadge); on('update', paintUpdate);
   paintLists();
   return { paintActive };
 }

@@ -228,3 +228,87 @@ func TestExpandVarsKeepsDollarSignsThatAreNotVariables(t *testing.T) {
 		}
 	}
 }
+
+func TestFindProgramLooksWhereDesktopAppsDoNot(t *testing.T) {
+	brew := t.TempDir()
+	defer func(f func() []string, os string, lp func(string) string) { programDirs, goos, lookPath = f, os, lp }(programDirs, goos, lookPath)
+	programDirs = func() []string { return []string{brew} }
+	lookPath = func(string) string { return "" } // a PATH without the package manager's folder
+	goos = "darwin"
+	ff := filepath.Join(brew, "ffmpeg")
+	if err := os.WriteFile(ff, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := FindProgram("ffmpeg"); got != ff {
+		t.Errorf("ffmpeg: %q", got)
+	}
+	if got := FindProgram("ffprobe"); got != "" {
+		t.Errorf("ffprobe: %q", got)
+	}
+	if got := FindProgram(filepath.Join(brew, "nope")); got != "" {
+		t.Errorf("missing path: %q", got)
+	}
+	// An application bundle stands for the program inside it.
+	app := filepath.Join(t.TempDir(), "VLC.app")
+	inner := filepath.Join(app, "Contents", "MacOS", "VLC")
+	if err := os.MkdirAll(filepath.Dir(inner), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inner, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := FindProgram(app); got != inner {
+		t.Errorf("bundle: %q", got)
+	}
+	c := New(t.TempDir())
+	p, err := c.AddPlayer("", app, nil)
+	if err != nil || p.Path != inner || p.Name != "VLC" || p.ID != "vlc" {
+		t.Errorf("player from a bundle: %+v %v", p, err)
+	}
+	if p, err := c.AddPlayer("", app, nil); err != nil || p.ID != "vlc-2" {
+		t.Errorf("a second one: %+v %v", p, err)
+	}
+}
+
+func TestOptionsAreValidated(t *testing.T) {
+	c := New(t.TempDir())
+	n := func(v int) *int { return &v }
+	s := func(v string) *string { return &v }
+	for _, o := range []Options{{AutoIndex: n(-1)}, {AutoIndex: n(8 * 24 * 60)}, {Workers: n(65)}, {ThumbQuality: n(101)}, {Updates: s("daily")},
+		{FFprobe: s(filepath.Join(t.TempDir(), "ffprobe"))}} {
+		if err := c.SetOptions(o); err == nil {
+			t.Errorf("accepted %+v", o)
+		}
+	}
+	if err := c.SetOptions(Options{AutoIndex: n(30), Updates: s("off"), FFmpeg: s(" ffmpeg ")}); err != nil {
+		t.Fatal(err)
+	}
+	if st := c.Settings(); st.AutoIndex != 30 || st.Updates != "off" || st.FFmpeg != "ffmpeg" {
+		t.Errorf("%+v", st)
+	}
+	if New(t.TempDir()).Settings().Updates != "notify" {
+		t.Error("updates are not told about by default")
+	}
+}
+
+func TestCacheDirCanLiveElsewhere(t *testing.T) {
+	home := t.TempDir()
+	c := New(home)
+	if c.CacheDir() != filepath.Join(home, "cache") {
+		t.Errorf("default: %s", c.CacheDir())
+	}
+	other := t.TempDir()
+	if err := c.SetCacheDir(other); err != nil {
+		t.Fatal(err)
+	}
+	re, err := Load(home)
+	if err != nil || re.CacheDir() != other || re.LibDir(Library{ID: "x"}) != filepath.Join(other, "x") {
+		t.Errorf("reloaded: %v %v", re.CacheDir(), err)
+	}
+	if err := re.SetCacheDir(filepath.Join(home, "cache")); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(re.Path()); strings.Contains(string(raw), "cache_dir") {
+		t.Errorf("the default is written out:\n%s", raw)
+	}
+}

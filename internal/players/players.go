@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,32 +23,56 @@ type Player struct {
 	Path     string
 	TitleArg string   // {title} is replaced by the file name when a single item is opened
 	Args     []string // extra arguments, put before the file (from "args" in config.json)
+	Custom   bool     // added by hand ("players" in config.json) rather than found on this computer
+	Hidden   bool     // found on this computer, but removed from the list ("hidden_players")
+	Missing  bool     // added by hand, but its program is not there (any more)
 }
+
+// Playable is whether the player is offered for playing.
+func (p Player) Playable() bool { return !p.Hidden && !p.Missing }
+
+// regValue is a registry value that holds a player's path on Windows: key under HKEY_CURRENT_USER or
+// HKEY_LOCAL_MACHINE, and the value's name ("" for the key's default value).
+type regValue struct{ key, value string }
 
 type known struct {
 	id, name string
-	paths    []string
+	paths    []string   // absolute (with %VARS% and ~), or a program name looked up like any other (see config.FindProgram)
+	exes     []string   // Windows: program names registered under App Paths by their installers
+	reg      []regValue // Windows: other registry values that hold the program's path
 	titleArg string
 }
 
+// knownPlayers are looked for on every computer, in this order (the first one found is the default until the user
+// picks one).
 var knownPlayers = []known{
-	{"mpv", "mpv", []string{`%USERPROFILE%\scoop\apps\mpv\current\mpv.exe`, "mpv", "/Applications/mpv.app/Contents/MacOS/mpv"}, "--force-media-title={title}"},
-	{"potplayer", "PotPlayer", []string{`%ProgramFiles%\DAUM\PotPlayer\PotPlayerMini64.exe`}, ""},
-	{"vlc", "VLC", []string{`%ProgramFiles%\VideoLAN\VLC\vlc.exe`, `%ProgramFiles(x86)%\VideoLAN\VLC\vlc.exe`, "vlc", "/Applications/VLC.app/Contents/MacOS/VLC"}, "--meta-title={title}"},
-	{"mpc-hc", "MPC-HC", []string{`%ProgramFiles%\MPC-HC\mpc-hc64.exe`}, ""},
-	{"mpc-be", "MPC-BE", []string{`%ProgramFiles%\MPC-BE x64\mpc-be64.exe`, `%ProgramFiles%\MPC-BE\mpc-be64.exe`}, ""},
+	{id: "mpv", name: "mpv", titleArg: "--force-media-title={title}", exes: []string{"mpv.exe"}, paths: []string{
+		`%USERPROFILE%\scoop\apps\mpv\current\mpv.exe`, `%ProgramFiles%\mpv\mpv.exe`, `%ProgramData%\chocolatey\bin\mpv.exe`,
+		"mpv", "/Applications/mpv.app/Contents/MacOS/mpv"}},
+	{id: "mpvnet", name: "mpv.net", titleArg: "--force-media-title={title}", exes: []string{"mpvnet.exe"}, paths: []string{
+		`%ProgramFiles%\mpv.net\mpvnet.exe`, `%LOCALAPPDATA%\Programs\mpv.net\mpvnet.exe`, "mpvnet"}},
+	{id: "iina", name: "IINA", titleArg: "--mpv-force-media-title={title}", paths: []string{"/Applications/IINA.app/Contents/MacOS/iina-cli"}},
+	{id: "potplayer", name: "PotPlayer", exes: []string{"PotPlayerMini64.exe", "PotPlayerMini.exe"},
+		reg: []regValue{{`Software\DAUM\PotPlayer64`, "ProgramPath"}, {`Software\DAUM\PotPlayer`, "ProgramPath"}},
+		paths: []string{`%ProgramFiles%\DAUM\PotPlayer\PotPlayerMini64.exe`, `%ProgramFiles(x86)%\DAUM\PotPlayer\PotPlayerMini.exe`,
+			`%USERPROFILE%\scoop\apps\potplayer\current\PotPlayerMini64.exe`}},
+	{id: "vlc", name: "VLC", titleArg: "--meta-title={title}", exes: []string{"vlc.exe"}, reg: []regValue{{`SOFTWARE\VideoLAN\VLC`, ""}},
+		paths: []string{`%ProgramFiles%\VideoLAN\VLC\vlc.exe`, `%ProgramFiles(x86)%\VideoLAN\VLC\vlc.exe`,
+			`%USERPROFILE%\scoop\apps\vlc\current\vlc.exe`, "vlc", "/Applications/VLC.app/Contents/MacOS/VLC"}},
+	{id: "mpc-hc", name: "MPC-HC", exes: []string{"mpc-hc64.exe", "mpc-hc.exe"}, reg: []regValue{{`Software\MPC-HC\MPC-HC`, "ExePath"}},
+		paths: []string{`%ProgramFiles%\MPC-HC\mpc-hc64.exe`, `%ProgramFiles(x86)%\MPC-HC\mpc-hc.exe`,
+			`%ProgramFiles%\K-Lite Codec Pack\MPC-HC64\mpc-hc64.exe`, `%ProgramFiles(x86)%\K-Lite Codec Pack\MPC-HC64\mpc-hc64.exe`}},
+	{id: "mpc-be", name: "MPC-BE", exes: []string{"mpc-be64.exe", "mpc-be.exe"}, reg: []regValue{{`Software\MPC-BE`, "ExePath"}},
+		paths: []string{`%ProgramFiles%\MPC-BE x64\mpc-be64.exe`, `%ProgramFiles%\MPC-BE\mpc-be64.exe`, `%ProgramFiles(x86)%\MPC-BE\mpc-be.exe`}},
+	{id: "smplayer", name: "SMPlayer", exes: []string{"smplayer.exe"},
+		paths: []string{`%ProgramFiles%\SMPlayer\smplayer.exe`, "smplayer", "/Applications/SMPlayer.app/Contents/MacOS/SMPlayer"}},
+	{id: "celluloid", name: "Celluloid", paths: []string{"celluloid"}},
+	{id: "haruna", name: "Haruna", paths: []string{"haruna"}},
 }
 
 func exists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
-}
-
-func which(name string) string {
-	if p, err := exec.LookPath(name); err == nil {
-		return p
-	}
-	return ""
 }
 
 func norm(p string) string {
@@ -61,51 +86,64 @@ func norm(p string) string {
 	return abs
 }
 
-// Detect lists the players: the ones from config.json first, then the ones found on this computer.
-func Detect(extra []config.Player) []Player {
+// find is where a known player is on this computer, or "".
+func (k known) find() string {
+	for _, raw := range k.paths {
+		if exp := config.ExpandVars(raw); filepath.IsAbs(exp) {
+			if exists(exp) {
+				return exp
+			}
+		} else if p := config.FindProgram(raw); p != "" {
+			return p
+		}
+	}
+	for _, p := range registryPaths(k.exes, k.reg) {
+		if p = strings.Trim(p, `"`); filepath.IsAbs(p) && exists(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+// Detect lists every player: the ones from config.json first, then the ones found on this computer (those the user
+// removed are marked Hidden), then the system's default handler. Only the Playable ones are offered for playing.
+func Detect(extra []config.Player, hidden []string) []Player {
 	var out []Player
 	seen := map[string]bool{}
 	for _, p := range extra {
-		path := p.Path
-		if !exists(path) {
-			if w := which(path); w != "" {
-				path = w
-			} else {
-				continue
-			}
-		} else if w := which(path); w != "" {
-			path = w
-		}
-		pl := Player{ID: p.ID, Name: p.Name, Path: p.Path, Args: p.Args}
+		pl := Player{ID: p.ID, Name: p.Name, Path: p.Path, Args: p.Args, Custom: true}
 		if p.TitleArg != nil {
 			pl.TitleArg = *p.TitleArg
 		}
+		if path := config.FindProgram(p.Path); path != "" {
+			pl.Path = path
+			seen[norm(path)] = true
+		} else {
+			pl.Missing = true
+		}
 		out = append(out, pl)
-		seen[norm(path)] = true
 	}
 	for _, k := range knownPlayers {
-		dup := false
-		for _, p := range out {
-			dup = dup || p.ID == k.id
+		if slices.ContainsFunc(out, func(p Player) bool { return p.ID == k.id }) {
+			continue // one of the user's own takes its place
 		}
-		if dup {
-			continue
-		}
-		for _, raw := range k.paths {
-			var path string
-			if exp := config.ExpandVars(raw); filepath.IsAbs(exp) {
-				path = exp
-			} else {
-				path = which(raw)
-			}
-			if path != "" && exists(path) && !seen[norm(path)] {
-				seen[norm(path)] = true
-				out = append(out, Player{ID: k.id, Name: k.name, Path: path, TitleArg: k.titleArg})
-				break
-			}
+		if path := k.find(); path != "" && !seen[norm(path)] {
+			seen[norm(path)] = true
+			out = append(out, Player{ID: k.id, Name: k.name, Path: path, TitleArg: k.titleArg, Hidden: slices.Contains(hidden, k.id)})
 		}
 	}
 	return append(out, Player{ID: "system", Name: "System default"})
+}
+
+// Playable keeps the players that are offered for playing.
+func Playable(list []Player) []Player {
+	var out []Player
+	for _, p := range list {
+		if p.Playable() {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Entry is something to play: a file path or URL.
@@ -133,7 +171,7 @@ func M3U(entries []Entry) string {
 // name of the player used.
 func Launch(list []Player, id string, entries []Entry, playlistFile string) (string, error) {
 	if len(list) == 0 {
-		return "", errors.New(`No media player found. Add one under "players" in config.json.`)
+		return "", errors.New("No media player found. Add one in Settings, under Players.")
 	}
 	player := list[0]
 	for _, p := range list {
@@ -195,3 +233,13 @@ func openDefault(target string) *exec.Cmd {
 
 // Reachable reports whether the file exists.
 func Reachable(path string) bool { return exists(path) }
+
+// Open opens a folder, file or URL the way a double click would (a folder in Explorer, Finder or the file manager).
+func Open(target string) error {
+	cmd := openDefault(target)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
+}

@@ -1,7 +1,7 @@
 // Application shell: sidebar, command palette, shortcuts, routing.
 import { $ } from './lib/dom.js';
 import { startRouter } from './lib/router.js';
-import { state, startWatcher, loadConnections, loadLibraries, loadPlayers, loadSystem } from './lib/state.js';
+import { state, startWatcher, loadConnections, loadLibraries, loadPlayers, loadSystem, loadUpdate } from './lib/state.js';
 import { toastError } from './lib/ui.js';
 import { buildSidebar } from './shell/sidebar.js';
 import { openPalette } from './shell/palette.js';
@@ -25,6 +25,12 @@ async function boot() {
     toastError('Could not reach the server', e);
   }
   startWatcher();
+  // The server looks for a new version itself, soon after it starts and every few hours: read what it found.
+  if (state.system?.can_edit) {
+    loadUpdate();
+    setTimeout(loadUpdate, 40000);
+    setInterval(loadUpdate, 3600000);
+  }
   const fallback = !state.libs.length && !state.connections.length ? 'welcome' : state.libs.length || !state.connections.length ? 'library' : 'storage';
   await startRouter({ root: $('#view'), views: VIEWS, fallback, onChange: side.paintActive });
 }

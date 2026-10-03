@@ -47,20 +47,14 @@ func (a *App) Handler(web fs.FS) http.Handler {
 	def("GET /{$}", open, func(c *Ctx) (any, error) { return nil, serveWeb(c, web, "index.html") })
 	def("GET /static/{path...}", open, func(c *Ctx) (any, error) { return nil, serveWeb(c, web, c.P("path")) })
 	def("GET /thumbs/{lib}/{name}", open, a.thumb)
-	def("GET /api/system", open, func(c *Ctx) (any, error) { return a.SystemInfo(), nil })
+	def("GET /api/system", open, func(c *Ctx) (any, error) { return a.SystemInfo(c.R), nil })
 
 	// libraries
 	def("GET /api/libraries", open, a.listLibraries)
 	def("GET /api/library", open, a.getLibrary)
 	def("GET /api/search", open, a.searchMedia)
 	def("GET /api/index", open, func(c *Ctx) (any, error) { return map[string]any{"jobs": a.Jobs()}, nil })
-	def("GET /api/players", open, func(c *Ctx) (any, error) {
-		list := make([]map[string]any, len(a.Players))
-		for i, p := range a.Players {
-			list[i] = map[string]any{"id": p.ID, "name": p.Name}
-		}
-		return map[string]any{"players": list, "default": a.Cfg.Settings().DefaultPlayer}, nil
-	})
+	def("GET /api/players", open, func(c *Ctx) (any, error) { return a.playerList(), nil })
 	def("GET /api/playlist.m3u8", open, a.playlist)
 	def("GET /media/{rest...}", open, a.media)
 	def("POST /api/play", machine, a.play)
@@ -281,6 +275,7 @@ func (a *App) Handler(web fs.FS) http.Handler {
 	def("DELETE /api/tasks", private, func(c *Ctx) (any, error) { a.Tasks.Dismiss(""); return map[string]any{"ok": true}, nil })
 	def("DELETE /api/tasks/{id}", private, func(c *Ctx) (any, error) { a.Tasks.Dismiss(c.P("id")); return map[string]any{"ok": true}, nil })
 
+	a.settingsRoutes(def)
 	return mux
 }
 
@@ -652,7 +647,15 @@ func (a *App) testDraft(c *Ctx) (any, error) {
 }
 
 func (a *App) pickFolder(c *Ctx) (any, error) {
-	picked, err := pickFolder()
+	b, err := c.Body()
+	if err != nil {
+		return nil, err
+	}
+	title := b.Str("title")
+	if title == "" || len(title) > 120 {
+		title = "Choose a media folder"
+	}
+	picked, err := pickFolder(title)
 	if err != nil {
 		return nil, fail(500, "No folder dialog available here; type the path instead.")
 	}

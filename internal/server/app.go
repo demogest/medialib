@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -10,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -21,6 +21,7 @@ import (
 	"github.com/demogest/medialib/internal/players"
 	"github.com/demogest/medialib/internal/storage"
 	"github.com/demogest/medialib/internal/tasks"
+	"github.com/demogest/medialib/internal/update"
 	"github.com/demogest/medialib/internal/version"
 )
 
@@ -37,31 +38,64 @@ type App struct {
 	Tasks    *tasks.Runner
 	Storage  *storage.Storage
 	Indexer  *media.Indexer
-	Players  []players.Player
 	Mode     string // "server" or "desktop"
 	Listen   string // host:port the server is bound to
 	Port     int
 	Loopback bool        // bound to this computer only
 	Log      *log.Logger // one line per request when set (MEDIALIB_LOG=1)
+	Updates  *update.Updater
+	Quit     func() // ends the program (closes the desktop window); nil when nothing can
 
 	mu       sync.RWMutex
+	players  []players.Player // every player, hidden and missing ones included
+	moving   bool             // the index and covers are being moved: no indexing until that is done
 	stores   map[string]*media.Store
 	launched map[string]time.Time // recent player launches, see Launch
 	links    map[linkKey]link
 	jobs     map[string]*media.Job
+
+	autoMu     sync.Mutex
+	autoParent context.Context // the server's lifetime, for the automatic indexing loop
+	autoStop   context.CancelFunc
 }
 
 // NewApp builds the application state over a loaded config.
 func NewApp(cfg *config.Config, mode string) *App {
 	clients := config.NewClients(cfg)
 	runner := tasks.NewRunner()
-	return &App{
+	a := &App{
 		Cfg: cfg, Clients: clients, Tasks: runner, Mode: mode,
 		Storage: &storage.Storage{Clients: clients, Tasks: runner},
 		Indexer: &media.Indexer{Cfg: cfg, Clients: clients},
-		Players: players.Detect(cfg.Settings().Players),
 		stores:  map[string]*media.Store{}, links: map[linkKey]link{}, jobs: map[string]*media.Job{},
 	}
+	a.DetectPlayers()
+	return a
+}
+
+// ---------------------------------------------------------------- players
+
+// DetectPlayers looks for players again (after the list was edited, or a player was installed).
+func (a *App) DetectPlayers() {
+	s := a.Cfg.Settings()
+	list := players.Detect(s.Players, s.HiddenPlayers)
+	a.mu.Lock()
+	a.players = list
+	a.mu.Unlock()
+}
+
+// Players are the players offered for playing.
+func (a *App) Players() []players.Player {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return players.Playable(a.players)
+}
+
+// AllPlayers are every player, the ones removed from the list and the ones whose program is gone included.
+func (a *App) AllPlayers() []players.Player {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return append([]players.Player(nil), a.players...)
 }
 
 // ---------------------------------------------------------------- libraries
@@ -197,6 +231,12 @@ func (a *App) StartIndex(lib config.Library, force bool) *media.Job {
 		return j
 	}
 	job := media.NewJob()
+	if a.moving {
+		a.mu.Unlock()
+		job.Fail(errors.New("The index and covers are being moved to another folder; index again once that is done."))
+		job.Finish()
+		return job
+	}
 	a.jobs[lib.ID] = job
 	a.mu.Unlock()
 	go func() {
@@ -206,6 +246,31 @@ func (a *App) StartIndex(lib config.Library, force bool) *media.Job {
 		}
 	}()
 	return job
+}
+
+// RunAutoIndex keeps every library up to date by itself while ctx lasts, a pass every "auto_index" minutes (none
+// when that is 0). A change of the setting takes effect at once: see restartAutoIndex.
+func (a *App) RunAutoIndex(ctx context.Context) {
+	a.autoMu.Lock()
+	a.autoParent = ctx
+	a.autoMu.Unlock()
+	a.restartAutoIndex()
+}
+
+func (a *App) restartAutoIndex() {
+	a.autoMu.Lock()
+	defer a.autoMu.Unlock()
+	if a.autoStop != nil {
+		a.autoStop()
+		a.autoStop = nil
+	}
+	every := a.Cfg.Settings().AutoIndex
+	if a.autoParent == nil || every <= 0 {
+		return
+	}
+	ctx, cancel := context.WithCancel(a.autoParent)
+	a.autoStop = cancel
+	go a.AutoIndex(ctx, time.Duration(every)*time.Minute)
 }
 
 // AutoIndex keeps every library up to date while ctx lasts, for a server nobody presses "Update index" on: a first
@@ -340,7 +405,7 @@ func (a *App) Launch(playerID string, entries []players.Entry) (string, error) {
 	if t, ok := a.launched[key]; ok && time.Since(t) < 6*time.Second {
 		a.mu.Unlock()
 		name := playerID
-		for _, p := range a.Players {
+		for _, p := range a.Players() {
 			if p.ID == playerID {
 				name = p.Name
 			}
@@ -349,34 +414,41 @@ func (a *App) Launch(playerID string, entries []players.Entry) (string, error) {
 	}
 	a.launched[key] = time.Now()
 	a.mu.Unlock()
-	return players.Launch(a.Players, playerID, entries, filepath.Join(a.Cfg.CacheDir(), "playlists", "now-playing.m3u8"))
+	return players.Launch(a.Players(), playerID, entries, filepath.Join(a.Cfg.CacheDir(), "playlists", "now-playing.m3u8"))
 }
 
-// SystemInfo is what the Settings page shows.
-func (a *App) SystemInfo() map[string]any {
+// SystemInfo is what the Settings page shows. r is the request asking: what it may change depends on who asks.
+func (a *App) SystemInfo(r *http.Request) map[string]any {
 	s := a.Cfg.Settings()
 	where := func(name, def string) any {
 		if name == "" {
 			name = def
 		}
-		if p, err := exec.LookPath(name); err == nil {
+		if p := config.FindProgram(name); p != "" {
 			return p
 		}
 		return nil
 	}
-	ps := make([]map[string]any, len(a.Players))
-	for i, p := range a.Players {
+	all := a.AllPlayers()
+	ps := make([]map[string]any, len(all))
+	for i, p := range all {
 		var path any
 		if p.Path != "" {
 			path = p.Path
 		}
-		ps[i] = map[string]any{"id": p.ID, "name": p.Name, "path": path}
+		ps[i] = map[string]any{"id": p.ID, "name": p.Name, "path": path, "custom": p.Custom, "hidden": p.Hidden, "missing": p.Missing}
 	}
+	local := r != nil && isLoopbackConn(r)
 	return map[string]any{
 		"version": version.Version, "runtime": runtime.Version(), "platform": runtime.GOOS + "/" + runtime.GOARCH,
 		"ffmpeg": where(s.FFmpeg, "ffmpeg"), "ffprobe": where(s.FFprobe, "ffprobe"), "rclone": where(s.Rclone, "rclone"),
-		"config_dir": a.Cfg.Home(), "cache_dir": a.Cfg.CacheDir(), "port": a.Port, "listen": a.Listen, "mode": a.Mode,
-		"players": ps, "auto_index": s.AutoIndex,
+		"config_dir": a.Cfg.Home(), "config_file": a.Cfg.Path(), "cache_dir": a.Cfg.CacheDir(), "cache_custom": a.Cfg.CacheDir() != a.Cfg.DefaultCacheDir(),
+		"port": a.Port, "listen": a.Listen, "mode": a.Mode,
+		"players": ps, "default_player": s.DefaultPlayer, "auto_index": s.AutoIndex, "auto_index_env": s.AutoIndexEnv,
+		"workers": s.Workers, "thumb_quality": s.ThumbQuality, "tools": map[string]string{"ffmpeg": s.FFmpeg, "ffprobe": s.FFprobe, "rclone": s.Rclone},
+		"updates": s.Updates,
+		// What this browser may do: change settings (this computer, or signed in), and act on this computer's screen.
+		"can_edit": local || s.Password != "", "on_machine": local,
 	}
 }
 

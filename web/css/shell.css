@@ -215,3 +215,6 @@ dialog::backdrop { background: rgb(8 12 20 / .45); backdrop-filter: blur(3px); }
 .pal-reveal { display: grid; place-items: center; width: 28px; height: 28px; flex: none; margin-left: 6px; border-radius: 7px; color: var(--muted); opacity: 0; }
 .pal-item[aria-selected="true"] .pal-reveal, .pal-item:hover .pal-reveal { opacity: 1; }
 .pal-reveal:hover { background: var(--hover); color: var(--text); }
+
+.nav-item.update-pill { color: var(--accent); font-weight: 600; }
+.nav-item.update-pill:hover { background: var(--accent-soft); }

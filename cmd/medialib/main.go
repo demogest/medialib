@@ -46,6 +46,7 @@ func main() {
 		return
 	}
 	cmd, args := os.Args[1], os.Args[2:]
+	waitForPredecessor()
 	switch cmd {
 	case "version", "--version", "-v":
 		fmt.Println("medialib", version.Version)

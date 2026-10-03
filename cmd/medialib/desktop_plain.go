@@ -7,6 +7,9 @@ package main
 
 const defaultCommand = ""
 
+// desktopBuild: this is the plain build, which updates from the server downloads.
+const desktopBuild = false
+
 func desktopPreflight() bool { return true }
 
 func runDesktop(url string) error { return runAppMode(url) }

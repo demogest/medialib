@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 
 	"github.com/demogest/medialib/internal/config"
 	"github.com/demogest/medialib/internal/proc"
@@ -18,7 +19,10 @@ func runAppMode(url string) error {
 	if browser == "" {
 		fmt.Println("No Edge, Chrome or Chromium found for an app window; opening your browser instead. Press Ctrl+C to stop.")
 		openBrowser(url)
-		waitForInterrupt()
+		done := make(chan struct{})
+		var once sync.Once
+		closeWindow = func() { once.Do(func() { close(done) }) }
+		waitForInterrupt(done)
 		return nil
 	}
 	profile := filepath.Join(config.Home(), "window-profile")
@@ -27,6 +31,7 @@ func runAppMode(url string) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	closeWindow = func() { _ = cmd.Process.Kill() }
 	// The window is closed: the server goes with it. (If Chromium handed the window to a running instance this
 	// returns early; --user-data-dir keeps medialib's window in a process of its own.)
 	return cmd.Wait()

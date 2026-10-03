@@ -7,7 +7,8 @@ export const on = (name, fn) => { const f = e => fn(e.detail); bus.addEventListe
 
 export const state = {
   libs: [], activeLib: null,
-  players: [], defaultPlayer: null,
+  players: [], allPlayers: [], defaultPlayer: null,
+  update: null, // what /api/update says (null: not known, or not for this browser)
   connections: [],
   system: null,
   jobs: {},     // indexing jobs by library id
@@ -51,11 +52,19 @@ export async function loadSystem() {
   try { state.system = await get('/api/system'); } catch { state.system = null; }
   return state.system;
 }
-export async function loadPlayers() {
-  const j = await get('/api/players');
+export async function loadPlayers(j) {
+  j ||= await get('/api/players');
   state.players = j.players;
+  state.allPlayers = j.all || [];
   state.defaultPlayer = j.default;
+  emit('players');
   return j;
+}
+// Whether a newer medialib is out (the server looks now and then; this reads what it found).
+export async function loadUpdate() {
+  try { state.update = await get('/api/update'); } catch { state.update = null; }
+  emit('update');
+  return state.update;
 }
 
 // ---------------------------------------------------------------- watcher

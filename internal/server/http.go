@@ -154,6 +154,15 @@ func (b Body) BoolP(k string) *bool {
 	return nil
 }
 
+// IntP is nil when the key is missing or not a number.
+func (b Body) IntP(k string) *int {
+	if v, ok := b[k].(float64); ok {
+		n := int(v)
+		return &n
+	}
+	return nil
+}
+
 func (b Body) Strs(k string) []string {
 	var out []string
 	if l, ok := b[k].([]any); ok {

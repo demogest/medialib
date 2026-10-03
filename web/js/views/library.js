@@ -82,7 +82,12 @@ export async function mount(root, parts) {
   const stats = h('div.stats');
   const playAll = h('button.btn.primary', { type: 'button', onclick: () => play(S.visibleIds) }, icon('play', 'sm'), 'Play all');
   const shuffleAll = h('button.btn', { type: 'button', title: 'Play everything shown, in random order', onclick: () => play(shuffled(S.visibleIds)) }, icon('shuffle', 'sm'), 'Shuffle');
-  const copyPl = h('button.btn', { type: 'button', onclick: () => copy(`${location.origin}/api/playlist.m3u8?lib=${encodeURIComponent(S.lib)}&dir=${encodeURIComponent(S.scope)}` + (S.hidden.size ? '&hide=' + encodeURIComponent([...S.hidden].join(',')) : ''), 'Playlist URL') }, icon('link', 'sm'), 'Copy playlist URL');
+  // On this computer a playlist is saved as a file of real links (paths, links into the bucket) that any player opens
+  // without medialib; a browser elsewhere copies the playlist's address on this server instead.
+  const plQuery = () => `lib=${encodeURIComponent(S.lib)}&dir=${encodeURIComponent(S.scope)}` + (S.hidden.size ? '&hide=' + encodeURIComponent([...S.hidden].join(',')) : '');
+  const copyPl = onThisComputer()
+    ? h('button.btn', { type: 'button', title: 'Save everything shown as a playlist file (.m3u8)', onclick: () => savePlaylist() }, icon('download', 'sm'), 'Save playlist…')
+    : h('button.btn', { type: 'button', onclick: () => copy(`${location.origin}/api/playlist.m3u8?${plQuery()}`, 'Playlist URL') }, icon('link', 'sm'), 'Copy playlist URL');
   const groups = h('div#groups');
   const empty = h('p.empty', { hidden: true }, 'Nothing here matches.');
   const main = h('section.lib-main', banner, warnings,
@@ -115,8 +120,24 @@ export async function mount(root, parts) {
       toastError('Could not start the player', e);
     }
   }
-  async function copy(text, what) {
-    try { await navigator.clipboard.writeText(text); toast(what + ' copied', { kind: 'ok' }); } catch { toast('Copy failed: ' + text, { kind: 'error' }); }
+  async function copy(text, what, note = '') {
+    try { await navigator.clipboard.writeText(text); toast(what + ' copied' + note, { kind: 'ok' }); } catch { toast('Copy failed: ' + text, { kind: 'error' }); }
+  }
+  // Where a file really is, for any player or person: its path on this computer, a link into the bucket that works
+  // anywhere (for a week), or, for a browser on another computer, its address on this server (the only way it has).
+  const linkLabel = () => S.info.type === 'local' ? (onThisComputer() ? 'Copy file path' : 'Copy link') : 'Copy link';
+  async function copyLink(it) {
+    if (S.info.type === 'local') return onThisComputer() ? copy(localPath(S.info.location, it.key), 'File path') : copy(mediaUrl(it), 'Link');
+    try {
+      const j = await get(`/api/link?lib=${encodeURIComponent(S.lib)}&id=${encodeURIComponent(it.id)}`);
+      copy(j.url, 'Link', ' · it works for 7 days');
+    } catch (e) { toastError('Could not make a link', e); }
+  }
+  async function savePlaylist() {
+    try {
+      const j = await post(`/api/playlist/save?${plQuery()}`, {});
+      if (j.path) toast(`Saved ${j.count} ${j.count === 1 ? 'item' : 'items'} to ${j.path}` + (j.expires ? ' · its links work for 7 days' : ''), { kind: 'ok', ms: 6000 });
+    } catch (e) { toastError('Could not save the playlist', e); }
   }
   const filePath = it => S.info.type === 'local' ? localPath(S.info.location, it.key) : S.info.type === 's3' ? `s3://${S.info.bucket}/${it.key}` : it.key;
   const canReveal = () => S.info.type === 'local' && onThisComputer();
@@ -155,8 +176,8 @@ export async function mount(root, parts) {
       title: it.name, size: 'wide', body: h('div.details', h('div.det-view', big, strip), meta),
       actions: [
         canReveal() ? { label: revealLabel(), left: true, keepOpen: true, onClick: () => showInFolder(it) } : null,
-        { label: S.info.type === 'local' ? 'Copy path' : 'Copy key', keepOpen: true, onClick: () => copy(S.info.type === 'local' ? filePath(it) : it.key, 'Path') },
-        { label: 'Copy stream URL', keepOpen: true, onClick: () => copy(mediaUrl(it), 'Stream URL') },
+        S.info.type === 'local' ? null : { label: 'Copy key', keepOpen: true, onClick: () => copy(it.key, 'Key') },
+        { label: linkLabel(), keepOpen: true, onClick: () => copyLink(it) },
         { label: 'Play', primary: true, onClick: () => play([it.id]) },
       ].filter(Boolean),
     });
@@ -260,7 +281,7 @@ export async function mount(root, parts) {
     const hint = h('span.playhint'); hint.innerHTML = PLAY_HINT; cover.append(hint);
     const title = h('div.title', { title: it.name + '\nClick for details' }, stem(it.name));
     const sub = h('div.sub', [entry.sub, bytes(it.size)].filter(Boolean).join(' · '));
-    const cp = h('button.copy', { type: 'button', title: 'Copy stream URL', 'aria-label': 'Copy stream URL for ' + it.name }, icon('copy', 'sm'));
+    const cp = h('button.copy', { type: 'button', title: linkLabel(), 'aria-label': `${linkLabel()} of ${it.name}` }, icon('copy', 'sm'));
     art.append(cover, h('div.meta', title, cp, sub));
     return art;
   }
@@ -830,7 +851,7 @@ export async function mount(root, parts) {
     if (!cardEl) return;
     const it = S.byId.get(cardEl.dataset.id);
     if (e.target.closest('.cover')) play([it.id]);
-    else if (e.target.closest('.copy')) copy(mediaUrl(it), 'Stream URL');
+    else if (e.target.closest('.copy')) copyLink(it);
     else if (e.target.closest('.title')) showDetails(it);
   });
   groups.addEventListener('contextmenu', e => {
@@ -841,8 +862,8 @@ export async function mount(root, parts) {
       { label: 'Play', icon: 'play', onClick: () => play([it.id]) },
       { label: 'Details…', icon: 'info', onClick: () => showDetails(it) },
       canReveal() ? { label: revealLabel(), icon: 'folder', onClick: () => showInFolder(it) } : null,
-      { label: 'Copy stream URL', icon: 'link', onClick: () => copy(mediaUrl(it), 'Stream URL') },
-      { label: S.info.type === 'local' ? 'Copy file path' : 'Copy object key', icon: 'copy', onClick: () => copy(S.info.type === 'local' ? localPath(S.info.location, it.key) : it.key, 'Path') },
+      { label: linkLabel(), icon: 'link', onClick: () => copyLink(it) },
+      S.info.type === 'local' && onThisComputer() ? null : { label: S.info.type === 'local' ? 'Copy file path' : 'Copy object key', icon: 'copy', onClick: () => copy(S.info.type === 'local' ? localPath(S.info.location, it.key) : it.key, S.info.type === 'local' ? 'File path' : 'Key') },
       S.info.type === 's3' ? { label: 'Show in Storage', icon: 'storage', onClick: () => navigate('storage', S.info.connection, S.info.bucket, ...it.key.split('/').slice(0, -1)) } : null,
     ].filter(Boolean));
   });
