@@ -83,3 +83,5 @@
 .ob-done { display: flex; justify-content: center; margin-top: 24px; }
 .btn.big { height: 44px; padding: 0 22px; font-size: 15px; border-radius: 12px; }
 @media (max-width: 860px) { .ob-row .tag { display: none; } }
+@media (hover: none) { .shelf-nav { display: none; } }
+@media (max-width: 860px) { .home-head .actions .btn { height: 34px; } }

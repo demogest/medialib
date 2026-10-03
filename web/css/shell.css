@@ -243,7 +243,7 @@ a.side-group, .side-group a.mini { text-decoration: none; }
 @media (max-width: 860px) {
   .mobile-only { display: flex !important; }
   .mobile-only[hidden] { display: none !important; }
-  .side-nav { flex: 5; }
-  .app-foot { flex: 1; }
+  .side-nav, .app-foot { display: contents; } /* every tab is an equal share of the bar */
+  .side > .nav-item, .side-nav > .nav-item, .app-foot > .nav-item { flex: 1 1 0; min-width: 0; }
   .busy-chip, .update-pill { display: none !important; }
 }

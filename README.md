@@ -1,13 +1,44 @@
-# medialib
+# Media Library
 
-A self-hosted media library and object-storage browser. Index your video folders (local disks, NAS shares, or buckets on any S3-compatible store) into a browsable grid of keyframe covers that opens in the player you already use, and manage the buckets themselves: browse, preview, upload, move, rename and delete.
+**Your video folders, as a wall of real covers. Click one, and it plays in the player you already use.**
 
-It runs as a **desktop app** on your own machine, or as a plain **web server** you deploy and open in any browser. The backend is a single Go binary with the UI inside it and a hand-written S3 client (no runtime to install); the frontend is plain ES modules with no build step.
+Point it at a folder, a NAS share or an S3 bucket. Media Library finds every video, makes covers from real keyframes, finds anything as you type (in any language, pinyin and typos included), and opens it in mpv, VLC, PotPlayer, IINA or whatever you like. No account, no cloud, no transcoding: your files stay where they are.
+
+<p align="center"><img src="docs/screenshots/home-dark.jpg" alt="Home: recently played, recently added and your libraries" width="880"></p>
+
+**[Download for Windows](https://github.com/demogest/medialib/releases/latest)** (installer or portable) · **[macOS](https://github.com/demogest/medialib/releases/latest)** (Apple silicon) · **[Linux](https://github.com/demogest/medialib/releases/latest)** · or run it as a **server** ([Docker](#web-server)) and open it from any browser.
+
+- **Set up in a minute.** The first run shows the folders on your computer that hold videos; one click adds one and makes its covers.
+- **Browse like a streaming app.** Home shows what you played and what is new; folders are cards with their own covers; hover a video to scrub through its keyframes.
+- **Find anything.** `Ctrl K` searches every library by name, folder, codec or resolution, with filters like `dur>1h` or `res>=4k`.
+- **Your player, your files.** Plays in your own player, or copies the real path or link. It updates itself, and works the same on Windows, macOS and Linux.
+- **Cloud storage too.** Browse and manage buckets on Amazon S3, Cloudflare R2, Backblaze B2, MinIO, RustFS and others, and make any bucket folder a library.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/library-light.jpg" alt="A library: its folders as cards"><br><sub>Folders as cards, light theme</sub></td>
+<td width="50%"><img src="docs/screenshots/folder-dark.jpg" alt="A folder of videos"><br><sub>A folder: hover a cover to scrub its keyframes</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/search-dark.jpg" alt="Search everything with Ctrl K"><br><sub>Search every library at once</sub></td>
+<td><img src="docs/screenshots/details-dark.jpg" alt="Details of a video"><br><sub>Every keyframe, codec, size and where the file is</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/settings-dark.jpg" alt="Settings"><br><sub>Players, scanning, tools and updates, all in Settings</sub></td>
+<td align="center"><img src="docs/screenshots/phone-home.jpg" alt="On a phone" width="220"><br><sub>On a phone, from the server</sub></td>
+</tr>
+</table>
+
+---
+
+A self-hosted media library and object-storage browser. It runs as a **desktop app** on your own machine, or as a plain **web server** you deploy and open in any browser. The backend is a single Go binary with the UI inside it and a hand-written S3 client (no runtime to install); the frontend is plain ES modules with no build step.
 
 ## What's in it
 
+**Home**: what you played lately and what is new in every library, one click from playing, and each library as a tile of its newest covers. On a first run it lists the folders on the computer that hold videos, to add with one click.
+
 **Library**
-- Folder tree, grouped cover grids with a floating full-path title, search, and sort by name, date, size or length.
+- Folders as cards with their own covers, or every video grouped by folder under a floating full-path title; a folder tree; search; sort by name, date, size or length.
 - **Search** (the box in the library, and `Ctrl+K` for every library at once): by name, folder, extension, codec or resolution (`hevc`, `4k`, `1080p`); Chinese, Japanese and any other script; Chinese by **pinyin**, full (`donghua`) or initials (`dh`); hiragana and katakana alike; fuzzy, so letters in order (`hldy`) and a slip of the keys (`holidya`) still find the file. Several words must all match. **Filters** narrow the results down, or list files on their own: `dur>1h`, `dur<20m` (a bare number is minutes), `size<2g`, `size>500mb` (a bare number is megabytes), `date>=2024-05`, `date=2024` (a year, month or day of the file's date), `res>=1080`, `res>=4k`, with `<`, `<=`, `>`, `>=` or `=`. Names, folders and their pinyin are stored in the index as soon as files are listed, so files an indexing run has not reached yet are searchable already. Results are ranked by relevance (the sort box offers *Best match* while you search); `Enter` in the palette plays the file in your player, `Ctrl+Enter` shows it in its folder.
 - Five real keyframes per video; hover a cover to scrub through them. The indexer reads an MP4's own sample index and fetches only the bytes of the chosen keyframes (about 1 to 4 MB per video, even over the network). H.264, HEVC and AV1; other formats fall back to ffmpeg seeking. Indexing is incremental and multithreaded.
 - Libraries can be a local folder, a NAS share, or a bucket folder read straight through the S3 API.
