@@ -2,11 +2,13 @@ package media
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/demogest/medialib/internal/config"
 )
@@ -198,6 +200,28 @@ func TestStoreReloadsWhenTheIndexChanges(t *testing.T) {
 	snap, err = store.Get()
 	if err != nil || len(snap.Data.Items) != 1 || snap.ByID[it.ID] == nil || !strings.Contains(string(snap.ItemsJSON()), `"a.mp4"`) {
 		t.Fatalf("%+v %v", snap, err)
+	}
+}
+
+// On FAT and exFAT two saves within 2 seconds get the same modification time; the store must still see the second.
+func TestStoreReloadsWhenTheTimeStaysTheSame(t *testing.T) {
+	cfg, _ := config.Load(t.TempDir())
+	lib := cfg.Libraries()[0]
+	store := NewStore(cfg, lib)
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	recs := map[string]Item{}
+	for n := 1; n <= 2; n++ {
+		it := NewItem(fmt.Sprintf("clip %d.mp4", n), fmt.Sprintf("clip %d.mp4", n), "", "video", 1, "2026-01-01T00:00:00Z")
+		recs[it.ID] = it
+		if _, err := SaveLibrary(cfg, lib, recs, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(libFile(cfg, lib), at, at); err != nil {
+			t.Fatal(err)
+		}
+		if snap, err := store.Get(); err != nil || len(snap.Data.Items) != n {
+			t.Fatalf("save %d: %d items, %v", n, len(snap.Data.Items), err)
+		}
 	}
 }
 

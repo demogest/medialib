@@ -17,10 +17,11 @@ import (
 )
 
 const (
-	partSize   = 16 << 20 // upload part size: big enough to be efficient, small enough to hold a few in memory
-	crossChunk = 16 << 20
-	maxScan    = 50_000 // keys a name search looks through before giving up
-	inFlight   = 3      // parts uploaded at once
+	partSize      = 16 << 20 // upload part size: big enough to be efficient, small enough to hold a few in memory
+	crossChunk    = 16 << 20
+	maxScan       = 50_000 // keys a name search looks through before giving up
+	inFlight      = 3      // parts uploaded at once
+	crossInFlight = 4      // parts of one object travelling between two connections at once
 )
 
 // GuessType is the content type for a file name.
@@ -471,6 +472,19 @@ func (s *Storage) Transfer(conn, bucket string, items []Item, toConn, toBucket s
 			}
 		}
 		t.SetTotal(int64(len(pairs)))
+		// A moved object is removed from where it was once its copy is in place. One that cannot be is reported: it is
+		// still there, and now in both places.
+		removeMoved := func(keys []string) error {
+			_, failed, err := src.DeleteObjects(bucket, keys)
+			for _, f := range failed {
+				msg := f.Message
+				if msg == "" {
+					msg = f.Code
+				}
+				t.Fail("%s: copied, but the original could not be removed: %s", f.Key, msg)
+			}
+			return err
+		}
 		var doneKeys []string
 		for _, p := range pairs {
 			if err := t.Check(); err != nil {
@@ -499,7 +513,7 @@ func (s *Storage) Transfer(conn, bucket string, items []Item, toConn, toBucket s
 					return herr
 				}
 			}
-			n, cerr := copyOne(src, bucket, p, dst, toBucket, t)
+			cerr := copyOne(src, bucket, p, dst, toBucket, t)
 			if cerr != nil {
 				if errors.Is(cerr, tasks.ErrCancelled) {
 					return cerr
@@ -510,18 +524,17 @@ func (s *Storage) Transfer(conn, bucket string, items []Item, toConn, toBucket s
 				}
 				return cerr
 			}
-			t.AddBytes(n)
 			t.AddDone(1)
 			doneKeys = append(doneKeys, p.from)
 			if move && len(doneKeys) >= 500 {
-				if _, _, err := src.DeleteObjects(bucket, doneKeys); err != nil {
+				if err := removeMoved(doneKeys); err != nil {
 					return err
 				}
 				doneKeys = nil
 			}
 		}
 		if move && len(doneKeys) > 0 {
-			if _, _, err := src.DeleteObjects(bucket, doneKeys); err != nil {
+			if err := removeMoved(doneKeys); err != nil {
 				return err
 			}
 		}
@@ -530,62 +543,120 @@ func (s *Storage) Transfer(conn, bucket string, items []Item, toConn, toBucket s
 	}), nil
 }
 
-func copyOne(src *s3.Client, sb string, p pair, dst *s3.Client, db string, t *tasks.Task) (int64, error) {
+// copyOne copies one object and counts its bytes on the task as they arrive.
+func copyOne(src *s3.Client, sb string, p pair, dst *s3.Client, db string, t *tasks.Task) error {
 	if src == dst {
 		size := p.size
 		if !p.known {
 			info, err := src.HeadObject(sb, p.from)
 			if err != nil {
-				return 0, err
+				return err
 			}
 			size = info.Size
 		}
-		return size, src.CopyObject(sb, p.from, db, p.to, size, "", nil, false, nil)
+		if err := src.CopyObject(sb, p.from, db, p.to, size, "", nil, false, nil); err != nil {
+			return err
+		}
+		t.AddBytes(size)
+		return nil
 	}
 	info, err := src.HeadObject(sb, p.from)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	ctype := info.ContentType
 	if ctype == "" {
 		ctype = GuessType(p.from)
 	}
+	headers := map[string]string{}
+	for k, v := range map[string]string{"Cache-Control": info.CacheControl, "Content-Disposition": info.ContentDisposition,
+		"Content-Encoding": info.ContentEncoding} {
+		if v != "" {
+			headers[k] = v
+		}
+	}
 	if info.Size <= crossChunk {
 		var data []byte
 		if info.Size > 0 {
 			if data, err = src.GetObject(sb, p.from, ""); err != nil {
-				return 0, err
+				return err
 			}
 		}
-		_, err = dst.PutObject(db, p.to, data, ctype, info.Metadata, nil)
-		return info.Size, err
+		if _, err = dst.PutObject(db, p.to, data, ctype, info.Metadata, headers); err != nil {
+			return err
+		}
+		t.AddBytes(info.Size)
+		return nil
 	}
-	uploadID, err := dst.CreateMultipart(db, p.to, ctype, info.Metadata, nil)
+	uploadID, err := dst.CreateMultipart(db, p.to, ctype, info.Metadata, headers)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	var parts []s3.Part
-	for n, start := 1, int64(0); start < info.Size; n, start = n+1, start+crossChunk {
-		if err := t.Check(); err != nil {
-			dst.AbortMultipart(db, p.to, uploadID)
-			return 0, err
-		}
-		data, err := src.GetRange(sb, p.from, start, min(info.Size, start+crossChunk)-1)
-		var etag string
-		if err == nil {
-			etag, err = dst.UploadPart(db, p.to, uploadID, n, data)
-		}
-		if err != nil {
-			dst.AbortMultipart(db, p.to, uploadID)
-			return 0, err
-		}
-		parts = append(parts, s3.Part{Number: n, ETag: etag})
+	part, _ := s3.PlanParts(info.Size, crossChunk)
+	parts, err := copyParts(src, sb, p.from, dst, db, p.to, uploadID, info.Size, part, t)
+	if err == nil {
+		err = dst.CompleteMultipart(db, p.to, uploadID, parts)
 	}
-	if err := dst.CompleteMultipart(db, p.to, uploadID, parts); err != nil {
+	if err != nil {
 		dst.AbortMultipart(db, p.to, uploadID)
-		return 0, err
+		return err
 	}
-	return info.Size, nil
+	return nil
+}
+
+// copyParts moves an object's bytes into a multipart upload on another connection, a few parts at a time: one part
+// is being read while others are being written, instead of the two connections taking turns.
+func copyParts(src *s3.Client, sb, from string, dst *s3.Client, db, to, uploadID string, size, part int64, t *tasks.Task) ([]s3.Part, error) {
+	count := int((size + part - 1) / part)
+	parts := make([]s3.Part, count)
+	var (
+		mu       sync.Mutex
+		firstErr error
+		wg       sync.WaitGroup
+		next     = make(chan int)
+	)
+	fail := func(err error) {
+		mu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		mu.Unlock()
+	}
+	failed := func() bool { mu.Lock(); defer mu.Unlock(); return firstErr != nil }
+	for w := 0; w < min(crossInFlight, count); w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				start := int64(i) * part
+				end := min(size, start+part) - 1
+				data, err := src.GetRange(sb, from, start, end)
+				if err == nil && int64(len(data)) != end-start+1 {
+					err = &s3.Error{Code: "ShortRead", Message: fmt.Sprintf("got %d of the %d bytes at offset %d", len(data), end-start+1, start)}
+				}
+				var etag string
+				if err == nil {
+					etag, err = dst.UploadPart(db, to, uploadID, i+1, data)
+				}
+				if err != nil {
+					fail(err)
+					continue
+				}
+				parts[i] = s3.Part{Number: i + 1, ETag: etag}
+				t.AddBytes(int64(len(data)))
+			}
+		}()
+	}
+	for i := 0; i < count && !failed(); i++ {
+		if err := t.Check(); err != nil {
+			fail(err)
+			break
+		}
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+	return parts, firstErr
 }
 
 // ---------------------------------------------------------------- housekeeping

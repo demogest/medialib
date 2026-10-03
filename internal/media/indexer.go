@@ -38,13 +38,15 @@ func Running(state string) bool {
 
 // Job is the live state of one indexing run; it is a Reporter.
 type Job struct {
-	mu sync.Mutex
-	st JobState
+	mu   sync.Mutex
+	st   JobState
+	done chan struct{}
+	once sync.Once
 }
 
 // NewJob starts a job in the "listing" state.
 func NewJob() *Job {
-	return &Job{st: JobState{State: "listing", Started: float64(time.Now().UnixNano()) / 1e9}}
+	return &Job{st: JobState{State: "listing", Started: float64(time.Now().UnixNano()) / 1e9}, done: make(chan struct{})}
 }
 
 func (j *Job) State(state, line string) {
@@ -81,7 +83,11 @@ func (j *Job) Finish() {
 	j.mu.Lock()
 	j.st.Finished = &f
 	j.mu.Unlock()
+	j.once.Do(func() { close(j.done) })
 }
+
+// Done is closed when the job has finished.
+func (j *Job) Done() <-chan struct{} { return j.done }
 
 // Snapshot copies the state.
 func (j *Job) Snapshot() JobState {

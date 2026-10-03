@@ -29,13 +29,15 @@ import (
 )
 
 const (
-	emptySHA  = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-	unsigned  = "UNSIGNED-PAYLOAD"
-	MinPart   = 5 * 1024 * 1024 // S3 refuses smaller parts (except the last)
-	MaxParts  = 10_000
-	maxTries  = 4
-	copyLimit = 4 << 30 // beyond what a single copy request allows
+	emptySHA = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	unsigned = "UNSIGNED-PAYLOAD"
+	MinPart  = 5 * 1024 * 1024 // S3 refuses smaller parts (except the last)
+	MaxParts = 10_000
+	maxTries = 4
 )
+
+// copyLimit is the size above which a server-side copy goes part by part (a single copy request allows 5 GiB).
+var copyLimit int64 = 4 << 30
 
 // Provider is a preset for the connection form. {region} in Endpoint is substituted.
 type Provider struct {
@@ -969,6 +971,33 @@ func (c *Client) CopyObject(srcBucket, srcKey, bucket, key string, size int64, c
 		hdrs["x-amz-metadata-directive"] = "REPLACE"
 	}
 	if size > copyLimit {
+		if !replace {
+			// A copy made part by part is a new upload: unlike a single copy request it takes nothing from the source
+			// by itself, so its content type, headers and metadata are carried over here.
+			info, err := c.HeadObject(srcBucket, srcKey)
+			if err != nil {
+				return err
+			}
+			extra := map[string]string{}
+			for k, v := range map[string]string{"Cache-Control": info.CacheControl, "Content-Disposition": info.ContentDisposition,
+				"Content-Encoding": info.ContentEncoding} {
+				if v != "" {
+					extra[k] = v
+				}
+			}
+			for k, v := range headers {
+				extra[k] = v
+			}
+			ctype := contentType
+			if ctype == "" {
+				ctype = info.ContentType
+			}
+			meta := metadata
+			if meta == nil {
+				meta = info.Metadata
+			}
+			hdrs = metaHeaders(ctype, meta, extra)
+		}
 		return c.copyMultipart(srcBucket, srcKey, bucket, key, size, hdrs)
 	}
 	_, data, err := c.request("PUT", bucket, &key, nil, hdrs, nil)
@@ -980,6 +1009,7 @@ func (c *Client) CopyObject(srcBucket, srcKey, bucket, key string, size int64, c
 
 func (c *Client) copyMultipart(srcBucket, srcKey, bucket, key string, size int64, hdrs map[string]string) error {
 	delete(hdrs, "x-amz-copy-source")
+	delete(hdrs, "x-amz-metadata-directive") // a copy request's header, not an upload's
 	upload, err := c.CreateMultipart(bucket, key, "", nil, hdrs)
 	if err != nil {
 		return err

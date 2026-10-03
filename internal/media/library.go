@@ -160,10 +160,10 @@ func LoadLibrary(cfg *config.Config, lib config.Library) (*Data, error) {
 
 // Snapshot is a loaded index with what the server needs to answer quickly.
 type Snapshot struct {
-	Data    *Data
-	ByID    map[string]*Item
-	raw     json.RawMessage
-	rawOnce sync.Once
+	Data     *Data
+	ByID     map[string]*Item
+	raw      json.RawMessage
+	rawOnce  sync.Once
 	docs     []search.Doc
 	docsOnce sync.Once
 }
@@ -185,18 +185,25 @@ type Store struct {
 	cfg   *config.Config
 	lib   config.Library
 	mu    sync.Mutex
-	mtime [2]time.Time
+	stamp [2]fileStamp
 	snap  *Snapshot
 }
 
 // NewStore makes a store over a library.
 func NewStore(cfg *config.Config, lib config.Library) *Store { return &Store{cfg: cfg, lib: lib} }
 
-func mtimeOf(p string) time.Time {
+// fileStamp tells versions of a file apart. The size counts as well as the time: FAT and exFAT (a portable copy on
+// a USB stick) keep times to 2 seconds, so two saves in a row can share one.
+type fileStamp struct {
+	mod  time.Time
+	size int64
+}
+
+func stampOf(p string) fileStamp {
 	if st, err := os.Stat(p); err == nil {
-		return st.ModTime()
+		return fileStamp{st.ModTime(), st.Size()}
 	}
-	return time.Time{}
+	return fileStamp{}
 }
 
 // Get returns the current index.
@@ -205,11 +212,11 @@ func (s *Store) Get() (*Snapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// library.tmp counts too: a save whose replace was blocked lives there until it is promoted
-	m := [2]time.Time{mtimeOf(path), mtimeOf(tmpFile(path))}
-	if m[0].IsZero() {
-		m[0] = mtimeOf(legacyPath(path)) // not converted yet
+	m := [2]fileStamp{stampOf(path), stampOf(tmpFile(path))}
+	if m[0].mod.IsZero() {
+		m[0] = stampOf(legacyPath(path)) // not converted yet
 	}
-	if s.snap != nil && m == s.mtime {
+	if s.snap != nil && m == s.stamp {
 		return s.snap, nil
 	}
 	d, err := LoadLibrary(s.cfg, s.lib)
@@ -223,6 +230,6 @@ func (s *Store) Get() (*Snapshot, error) {
 	for i := range d.Items {
 		by[d.Items[i].ID] = &d.Items[i]
 	}
-	s.mtime, s.snap = m, &Snapshot{Data: d, ByID: by}
+	s.stamp, s.snap = m, &Snapshot{Data: d, ByID: by}
 	return s.snap, nil
 }

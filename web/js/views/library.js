@@ -17,6 +17,12 @@ const defaultHidden = () => new Set(KNOWN_TYPES.filter(t => !COMMON_VIDEO.has(t)
 const sameSet = (a, b) => a.size === b.size && [...a].every(x => b.has(x));
 const inScope = (it, s) => !s || it.dir === s || it.dir.startsWith(s + '/');
 const TYPE_LABEL = { local: 'Local folder', s3: 'S3 bucket', rclone: 'S3 via rclone' };
+// A file's path on the computer running medialib, written the way that computer writes paths (D:\Videos\a.mp4 on
+// Windows, /srv/videos/a.mp4 elsewhere), whatever computer the browser is on.
+const localPath = (root, key) => {
+  const sep = /^[A-Za-z]:|^\\\\|\\/.test(root) ? '\\' : '/';
+  return root.replace(/[\\/]+$/, '') + sep + key.split('/').join(sep);
+};
 
 const itemSort = {
   rel: (a, b) => a.rank - b.rank,
@@ -777,7 +783,7 @@ export async function mount(root, parts) {
     contextMenu(e, [
       { label: 'Play', icon: 'play', onClick: () => play([it.id]) },
       { label: 'Copy stream URL', icon: 'link', onClick: () => copy(mediaUrl(it), 'Stream URL') },
-      { label: S.info.type === 'local' ? 'Copy file path' : 'Copy object key', icon: 'copy', onClick: () => copy(S.info.type === 'local' ? `${S.info.location}\\${it.key.replace(/\//g, '\\')}` : it.key, 'Path') },
+      { label: S.info.type === 'local' ? 'Copy file path' : 'Copy object key', icon: 'copy', onClick: () => copy(S.info.type === 'local' ? localPath(S.info.location, it.key) : it.key, 'Path') },
       S.info.type === 's3' ? { label: 'Show in Storage', icon: 'storage', onClick: () => navigate('storage', S.info.connection, S.info.bucket, ...it.key.split('/').slice(0, -1)) } : null,
     ].filter(Boolean));
   });

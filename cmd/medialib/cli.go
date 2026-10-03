@@ -82,25 +82,52 @@ func (printer) Line(line string)               { fmt.Println(line) }
 func cmdIndex(cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("index", flag.ContinueOnError)
 	id := fs.String("library", "", "library id (default: the active one)")
+	all := fs.Bool("all", false, "every library, one after another")
 	workers := fs.Int("workers", 0, "files indexed at once")
 	limit := fs.Int("limit", 0, "index at most N new/changed files")
 	force := fs.Bool("force", false, "re-index everything")
 	if _, err := parse(fs, args); err != nil {
 		return err
 	}
-	lib, ok := cfg.Library(*id)
-	if !ok {
-		var ids []string
-		for _, l := range cfg.Libraries() {
-			ids = append(ids, l.ID)
+	var libs []config.Library
+	if *all {
+		if *id != "" {
+			return errors.New("give either --library or --all")
 		}
-		return fmt.Errorf("Unknown library %q. Known: %s", *id, strings.Join(ids, ", "))
+		libs = cfg.Libraries()
+	} else {
+		lib, ok := cfg.Library(*id)
+		if !ok {
+			var ids []string
+			for _, l := range cfg.Libraries() {
+				ids = append(ids, l.ID)
+			}
+			return fmt.Errorf("Unknown library %q. Known: %s", *id, strings.Join(ids, ", "))
+		}
+		libs = []config.Library{lib}
 	}
-	fmt.Printf("Library: %s [%s]\n", lib.Name, lib.ID)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ix := &media.Indexer{Cfg: cfg, Clients: config.NewClients(cfg)}
-	return ix.Run(ctx, lib, media.Options{Workers: *workers, Limit: *limit, Force: *force}, printer{})
+	var failed []string
+	for _, lib := range libs {
+		fmt.Printf("Library: %s [%s]\n", lib.Name, lib.ID)
+		err := ix.Run(ctx, lib, media.Options{Workers: *workers, Limit: *limit, Force: *force}, printer{})
+		if ctx.Err() != nil {
+			return err
+		}
+		if err != nil {
+			if len(libs) == 1 {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "%s: %v\n", lib.ID, err) // one unreachable library does not stop the others
+			failed = append(failed, lib.ID)
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("indexing failed for %s", strings.Join(failed, ", "))
+	}
+	return nil
 }
 
 // cmdCompact converts the JPEG thumbnails of version 3.0 to WebP, about half the size, without reading any media.

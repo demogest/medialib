@@ -252,6 +252,13 @@ class Api(unittest.TestCase):
         t = self.finish(self.post(self.b(src, "transfer"), {"items": [{"from": "dir/big.bin", "to": "x/big.bin"}], "to_conn": other, "to_bucket": dst}))
         self.assertEqual((t["state"], t["error_count"]), ("done", 0), t)
         self.assertEqual(hashlib.sha256(c.get_object(dst, "x/big.bin")).digest(), hashlib.sha256(big).digest())
+        self.assertEqual(t["bytes"], len(big))
+        # headers and metadata travel with the object
+        c.c.put_object(Bucket=src, Key="dir/page.html", Body=b"<p>hi</p>", ContentType="text/html", CacheControl="max-age=60", Metadata={"title": "x"})
+        t = self.finish(self.post(self.b(src, "transfer"), {"items": [{"from": "dir/page.html", "to": "x/page.html"}], "to_conn": other, "to_bucket": dst}))
+        self.assertEqual((t["state"], t["error_count"]), ("done", 0), t)
+        head = c.c.head_object(Bucket=dst, Key="x/page.html")
+        self.assertEqual((head["ContentType"], head.get("CacheControl"), head["Metadata"]), ("text/html", "max-age=60", {"title": "x"}))
 
     def test_cannot_copy_a_folder_into_itself(self):
         bkt = self.bucket("selfcopy")
