@@ -17,7 +17,7 @@ jobs:
     env:
       TAG: ${{ inputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
       - run: git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
       - run: |

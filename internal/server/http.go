@@ -275,6 +275,9 @@ func (a *App) guard(class int, fn routeFn) http.HandlerFunc {
 		if a.Log != nil {
 			a.Log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.RequestURI())
 		}
+		// Never inside another site's frame (clicks it tricks the user into), and no type guessing.
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		// Refuse cross-site requests from web pages, and foreign Host names (DNS rebinding) on loopback.
 		if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 			writeText(w, 403, "forbidden")

@@ -258,7 +258,7 @@ func TestCheckErrorsAndCaching(t *testing.T) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		http.Error(w, "rate limited", 403)
+		http.Error(w, "rate limited", http.StatusForbidden)
 	}))
 	defer srv.Close()
 	u := &Updater{Current: "3.2.0", API: srv.URL}

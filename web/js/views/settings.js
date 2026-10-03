@@ -174,8 +174,8 @@ export async function mount(root) {
   // ---------------------------------------------------------------- tools
   function tools() {
     return [h('div.section-title', 'Tools'), h('div.card-box.set-card', TOOLS.map(([name, why]) => {
-      const found = info[name], set = info.tools[name], custom = set && set !== name;
-      return h('div.set-row', h('div.grow', h('div.set-name', name), h('div.muted', why), found ? h('code.mono.set-path', found) : null),
+      const found = info[name], set = info.tools?.[name], custom = set && set !== name;
+      return h('div.set-row', h('div.grow', h('div.set-name', name), h('div.muted', why), typeof found === 'string' ? h('code.mono.set-path', found) : null),
         found ? h('span.tag.ok', icon('check', 'sm'), 'Found') : h('span.tag.warn', 'Not found'),
         editable() ? btn(custom ? 'Change…' : 'Choose…', () => chooseTool(name, set), { title: `Use a ${name} of your choice` }) : null,
         editable() && custom ? btn('Default', () => save({ [name]: '' }), { title: `Look for ${name} on the PATH again` }) : null);
@@ -195,6 +195,7 @@ export async function mount(root) {
 
   // ---------------------------------------------------------------- files
   function files() {
+    if (!info.config_file) return []; // not shown to a browser that may only watch
     const t = moving && state.tasks.find(x => x.id === moving);
     const cacheHint = t && t.state === 'running' ? `Moving… ${plural(t.done, 'file')} of ${t.total} · ${bytes(t.bytes)}` : 'The index of every library and its covers. They can grow large: put them on a roomy disk.';
     return [h('div.section-title', 'Files'), h('div.card-box.set-card',

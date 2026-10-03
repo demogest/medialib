@@ -310,3 +310,55 @@ func TestUpdatesAreCheckedAndOnlyInstalledHere(t *testing.T) {
 		}
 	}
 }
+
+func TestFilesFromBucketsAndFoldersCannotActAsTheSite(t *testing.T) {
+	e := setup(t, true)
+	folder := t.TempDir()
+	if err := os.WriteFile(filepath.Join(folder, "clip.mp4"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	add := decode(t, e.do("POST", "/api/libraries", `{"path": `+quote(folder)+`, "name": "Clips"}`))
+	lib, _ := e.cfg.Library(add["id"].(string))
+	it := media.NewItem("clip.mp4", "clip.mp4", "", "video", 1, "2026-01-01T00:00:00Z")
+	if _, err := media.SaveLibrary(e.cfg, lib, map[string]media.Item{it.ID: it}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do("GET", "/media/"+lib.ID+"/"+it.ID+"/clip.mp4", "")
+	if rec.Code != 200 || rec.Header().Get("Content-Security-Policy") != "sandbox" || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("local file: %d %v", rec.Code, rec.Header())
+	}
+	for _, c := range []struct{ ct, csp string }{{"text/html", "sandbox"}, {"image/svg+xml", "sandbox"}, {"video/mp4", "sandbox"}, {"application/pdf", ""}} {
+		h := http.Header{}
+		inert(h, c.ct)
+		if h.Get("Content-Security-Policy") != c.csp || h.Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s: %v", c.ct, h)
+		}
+	}
+	if rec := e.do("GET", "/", ""); rec.Header().Get("X-Frame-Options") != "DENY" {
+		t.Errorf("the UI may be framed by other sites: %v", rec.Header())
+	}
+}
+
+func TestViewersElsewhereDoNotLearnLocalPaths(t *testing.T) {
+	e := setup(t, false)
+	local := decode(t, e.do("GET", "/api/system", ""))
+	far := decode(t, e.do("GET", "/api/system", "", remote))
+	if local["config_file"] == nil || local["cache_dir"] == nil {
+		t.Errorf("this computer: %v", local)
+	}
+	for _, k := range []string{"config_dir", "config_file", "cache_dir", "tools", "listen"} {
+		if _, ok := far[k]; ok {
+			t.Errorf("another computer sees %s: %v", k, far[k])
+		}
+	}
+	for _, k := range []string{"ffmpeg", "ffprobe", "rclone"} {
+		if _, ok := far[k].(bool); !ok {
+			t.Errorf("%s: %v", k, far[k])
+		}
+	}
+	for _, p := range far["players"].([]any) {
+		if p.(map[string]any)["path"] != nil {
+			t.Errorf("player path: %v", p)
+		}
+	}
+}

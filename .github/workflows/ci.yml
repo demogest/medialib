@@ -14,10 +14,10 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: { go-version: stable }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with: { node-version: 22 }
       # gofmt, every UI script parses (there is no build step to catch a broken one), shell scripts parse
       - run: make lint
@@ -25,10 +25,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: { go-version: stable }
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with: { python-version: "3.12", cache: pip, cache-dependency-path: requirements-dev.txt }
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: pip install -r requirements-dev.txt
@@ -37,8 +37,8 @@ jobs:
   cross:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: { go-version: stable }
       - run: make cross
   desktop:
@@ -46,10 +46,17 @@ jobs:
       matrix: { os: [ubuntu-latest, macos-latest, windows-latest] }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: { go-version: stable }
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
       - run: sh scripts/build-desktop.sh dist/medialib-desktop
         shell: bash
+  # The container image (Dockerfile): its Go must be new enough for go.mod, its packages must still exist.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build --build-arg VERSION=ci -t medialib .
+      - run: docker run --rm medialib version && docker run --rm --entrypoint ffmpeg medialib -hide_banner -version

@@ -439,7 +439,8 @@ func (a *App) SystemInfo(r *http.Request) map[string]any {
 		ps[i] = map[string]any{"id": p.ID, "name": p.Name, "path": path, "custom": p.Custom, "hidden": p.Hidden, "missing": p.Missing}
 	}
 	local := r != nil && isLoopbackConn(r)
-	return map[string]any{
+	canEdit := local || s.Password != ""
+	info := map[string]any{
 		"version": version.Version, "runtime": runtime.Version(), "platform": runtime.GOOS + "/" + runtime.GOARCH,
 		"ffmpeg": where(s.FFmpeg, "ffmpeg"), "ffprobe": where(s.FFprobe, "ffprobe"), "rclone": where(s.Rclone, "rclone"),
 		"config_dir": a.Cfg.Home(), "config_file": a.Cfg.Path(), "cache_dir": a.Cfg.CacheDir(), "cache_custom": a.Cfg.CacheDir() != a.Cfg.DefaultCacheDir(),
@@ -448,8 +449,20 @@ func (a *App) SystemInfo(r *http.Request) map[string]any {
 		"workers": s.Workers, "thumb_quality": s.ThumbQuality, "tools": map[string]string{"ffmpeg": s.FFmpeg, "ffprobe": s.FFprobe, "rclone": s.Rclone},
 		"updates": s.Updates,
 		// What this browser may do: change settings (this computer, or signed in), and act on this computer's screen.
-		"can_edit": local || s.Password != "", "on_machine": local,
+		"can_edit": canEdit, "on_machine": local,
 	}
+	if !canEdit { // someone who may only watch learns what is there, not where it is on this computer
+		for _, k := range []string{"ffmpeg", "ffprobe", "rclone"} {
+			info[k] = info[k] != nil
+		}
+		for _, p := range ps {
+			p["path"] = nil
+		}
+		for _, k := range []string{"config_dir", "config_file", "cache_dir", "tools", "listen"} {
+			delete(info, k)
+		}
+	}
+	return info
 }
 
 // Serve runs the HTTP server on a listener until ctx ends.

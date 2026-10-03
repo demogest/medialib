@@ -533,8 +533,22 @@ func serveLocalFile(c *Ctx, p string) error {
 		writeText(c.W, 404, "file not reachable")
 		return nil
 	}
-	http.ServeContent(c.W, c.R, path.Base(strings.ReplaceAll(p, `\`, "/")), st.ModTime(), f)
+	name := path.Base(strings.ReplaceAll(p, `\`, "/"))
+	inert(c.W.Header(), mime.TypeByExtension(path.Ext(name)))
+	http.ServeContent(c.W, c.R, name, st.ModTime(), f)
 	return nil
+}
+
+// inert keeps a file served from a bucket or a folder from acting as part of medialib: opened in a tab, an HTML or
+// SVG file someone put in a bucket would otherwise run its scripts as this site, with the run of its API. It renders
+// in a sandbox of its own instead, scripts off; nothing is guessed from the content. Pictures, video and sound in the
+// page are unaffected (the policy only applies to a document), and so is a PDF, which the browser's viewer would not
+// show in a sandbox (and whose scripts never run as this site anyway).
+func inert(h http.Header, contentType string) {
+	h.Set("X-Content-Type-Options", "nosniff")
+	if !strings.HasPrefix(strings.ToLower(contentType), "application/pdf") {
+		h.Set("Content-Security-Policy", "sandbox")
+	}
 }
 
 func (a *App) play(c *Ctx) (any, error) {
@@ -898,6 +912,7 @@ func (a *App) object(c *Ctx) (any, error) {
 	}
 	out := c.W.Header()
 	out.Set("Content-Type", ct)
+	inert(out, ct)
 	for _, name := range []string{"Content-Length", "Content-Range", "ETag", "Last-Modified"} {
 		if v := h.Get(name); v != "" {
 			out.Set(name, v)
