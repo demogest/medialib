@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/demogest/medialib/internal/version.Version=$(VERSION)
 EXE     := $(if $(filter windows,$(shell go env GOOS)),.exe,)
 
-.PHONY: all server desktop cross test e2e vet docker clean
+.PHONY: all server desktop cross winres test e2e vet lint docker clean
 
 all: server
 
@@ -22,8 +22,29 @@ cross:
 	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "$(LDFLAGS)" -o dist/medialib-$$os-$$arch$$ext ./cmd/medialib || exit 1; \
 	done
 
+# Stamps VERSION (v3.2.0, 3.2.0, or a git describe of one) into the Windows version resource, so a release's .exe
+# files show its version under Properties > Details. Release builds run it; other versions keep winres/versioninfo.json's.
+winres:
+	@set -e; v=$$(echo "$(VERSION)" | sed -nE 's/^v?([0-9]+)\.([0-9]+)\.([0-9]+).*/\1 \2 \3/p'); \
+	if [ -z "$$v" ]; then echo "winres: $(VERSION) is not a version number; keeping winres/versioninfo.json's"; exit 0; fi; \
+	set -- $$v; cd cmd/medialib; \
+	for arch in amd64 arm64; do \
+	  arm=; [ $$arch = arm64 ] && arm=-arm; \
+	  go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo -64 $$arm \
+	    -ver-major=$$1 -ver-minor=$$2 -ver-patch=$$3 -product-ver-major=$$1 -product-ver-minor=$$2 -product-ver-patch=$$3 \
+	    -file-version=$$1.$$2.$$3 -product-version=$$1.$$2.$$3 -o resource_windows_$$arch.syso winres/versioninfo.json; \
+	done; echo "winres: $$1.$$2.$$3"
+
 vet:
 	go vet ./...
+
+# What CI checks besides the tests: Go formatting, and that every script of the UI (no build step) and the shell
+# scripts at least parse. The UI check needs Node 22 or later (module syntax is detected by itself).
+lint:
+	@test -z "$$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
+	@find web -name '*.js' -print0 | xargs -0 -n1 node --check
+	@for f in scripts/*.sh; do sh -n "$$f"; done
+	@echo lint ok
 
 test: vet
 	go test -race ./...

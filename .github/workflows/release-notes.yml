@@ -1,0 +1,29 @@
+# Writes the generated notes (scripts/release-notes.sh) into a release that already exists, leaving its files alone:
+# for a release made before the notes were automatic, or after changing a tag's message.
+name: release-notes
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag of the release, e.g. v3.1.0"
+        required: true
+permissions:
+  contents: read
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+      - run: |
+          sh scripts/release-notes.sh "$TAG" > release-notes.md
+          cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          body_path: release-notes.md

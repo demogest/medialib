@@ -13,6 +13,9 @@
 AppId={{6F1C7B52-3A0E-4C57-9E4B-5D2A9C0B7A11}
 AppName=Media Library
 AppVersion={#AppVersion}
+; The setup program's own Properties > Details (Inno Setup leaves its file version at 0.0.0.0 otherwise).
+VersionInfoVersion={#AppVersion}
+VersionInfoDescription=Media Library Setup
 AppPublisher=demogest
 AppPublisherURL=https://github.com/demogest/medialib
 DefaultDirName={autopf}\Media Library

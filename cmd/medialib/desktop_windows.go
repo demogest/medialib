@@ -271,10 +271,10 @@ func colorTitleBar(hwnd uintptr, r, g, b int) {
 		flag, text = 1, 0x00F2F2F2
 	}
 	col := uint32(b)<<16 | uint32(g)<<8 | uint32(r) // COLORREF is 0x00BBGGRR
-	setAttr(hwnd, 20, flag) // DWMWA_USE_IMMERSIVE_DARK_MODE
-	setAttr(hwnd, 35, col)  // DWMWA_CAPTION_COLOR
-	setAttr(hwnd, 34, col)  // DWMWA_BORDER_COLOR
-	setAttr(hwnd, 36, text) // DWMWA_TEXT_COLOR
+	setAttr(hwnd, 20, flag)                         // DWMWA_USE_IMMERSIVE_DARK_MODE
+	setAttr(hwnd, 35, col)                          // DWMWA_CAPTION_COLOR
+	setAttr(hwnd, 34, col)                          // DWMWA_BORDER_COLOR
+	setAttr(hwnd, 36, text)                         // DWMWA_TEXT_COLOR
 }
 
 // restoreWindow puts the window back where it was, unless that place is off every screen now.

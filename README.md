@@ -12,6 +12,7 @@ It runs as a **desktop app** on your own machine, or as a plain **web server** y
 - Five real keyframes per video; hover a cover to scrub through them. The indexer reads an MP4's own sample index and fetches only the bytes of the chosen keyframes (about 1 to 4 MB per video, even over the network). H.264, HEVC and AV1; other formats fall back to ffmpeg seeking. Indexing is incremental and multithreaded.
 - Libraries can be a local folder, a NAS share, or a bucket folder read straight through the S3 API.
 - Click a cover to open it in mpv, VLC, PotPlayer, MPC or the system default. Play a whole folder as a playlist, or shuffled, or copy its stream URL.
+- Click a file's name (or right-click → **Details**) for all its keyframes (arrow keys step through them), codec, frame rate, sound and full path. In a local library, **Show in Explorer** (Finder, or the file manager on Linux) opens its folder with the file selected.
 
 **Storage** (new in 2.0)
 - Connect to **RustFS, MinIO, Amazon S3, Cloudflare R2, Backblaze B2, Wasabi, Alibaba OSS, Tencent COS, DigitalOcean Spaces, Google Cloud Storage** (interoperability mode) or anything else that speaks S3.
@@ -35,7 +36,7 @@ It runs as a **desktop app** on your own machine, or as a plain **web server** y
 
 ## Three ways to run it
 
-One program, one UI. Build it (`make server`, `make desktop`), or take a binary from the releases page once a version is tagged (`.github/workflows/release.yml`).
+One program, one UI. Build it (`make server`, `make desktop`), or take a binary from the [releases page](https://github.com/demogest/medialib/releases), each with its notes and `SHA256SUMS`.
 
 ### Desktop app
 
@@ -162,6 +163,13 @@ python -m tests.e2e.demo_env                    # a disposable demo: mock S3 wit
 ```
 
 The signing tests use the examples published in the AWS documentation. The unit tests that need ffmpeg skip themselves without it.
+
+## Releasing
+
+Push a tag: `git tag -a v3.2.0 -m "medialib 3.2.0" && git push origin v3.2.0`. The release workflow builds every download (the version goes into the program, the Windows file properties and the installer), and only once all of them have built publishes the release with `SHA256SUMS` and generated notes: every change since the previous tag, from the commit messages (a squash-merged pull request brings its list of changes), led by the tag's own message if it says more than a title. `scripts/release-notes.sh v3.2.0` shows them beforehand.
+
+- **Actions → release → Run workflow** is a dry run: it builds everything and writes the notes and checksums (shown on the run's page and kept as artifacts) but publishes nothing.
+- **Actions → release-notes → Run workflow** writes the notes into a release that already exists, leaving its files alone.
 
 ## Security
 
