@@ -1,11 +1,11 @@
 # Builds the Windows desktop app and packages it: dist\medialib-desktop.exe, a portable zip and a setup installer.
-#   powershell -File scripts\package-windows.ps1 [-Version 3.0.0] [-Arch amd64|arm64]
+#   powershell -File scripts\package-windows.ps1 [-Version 3.1.0] [-Arch amd64|arm64]
 # Needs Go. The installer also needs Inno Setup 6 (iscc); without it only the exe and zip are made.
 param([string]$Version = "", [string]$Arch = "amd64")
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 if (-not $Version) { $Version = (git describe --tags --always --dirty 2>$null); if (-not $Version) { $Version = "dev" } }
-$num = if ($Version -match '(\d+\.\d+\.\d+)') { $Matches[1] } else { "3.0.0" }
+$num = if ($Version -match '(\d+\.\d+\.\d+)') { $Matches[1] } else { "3.1.0" }
 New-Item -ItemType Directory -Force dist | Out-Null
 $env:CGO_ENABLED = "0"; $env:GOOS = "windows"; $env:GOARCH = $Arch
 $exe = "dist\medialib-desktop-windows-$Arch.exe"
