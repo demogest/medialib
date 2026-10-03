@@ -1,8 +1,27 @@
 name: ci
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+# A new push to a pull request makes its older runs pointless.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: stable }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      # gofmt, every UI script parses (there is no build step to catch a broken one), shell scripts parse
+      - run: make lint
+      - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
   test:
     runs-on: ubuntu-latest
     steps:
@@ -10,7 +29,7 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version: stable }
       - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: requirements-dev.txt }
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: pip install -r requirements-dev.txt
       - run: make test

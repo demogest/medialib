@@ -35,7 +35,7 @@ It runs as a **desktop app** on your own machine, or as a plain **web server** y
 
 ## Three ways to run it
 
-One program, one UI. Build it (`make server`, `make desktop`), or take a binary from the releases page once a version is tagged (`.github/workflows/release.yml`).
+One program, one UI. Build it (`make server`, `make desktop`), or take a binary from the [releases page](https://github.com/demogest/medialib/releases), each with its notes and `SHA256SUMS`.
 
 ### Desktop app
 
@@ -162,6 +162,13 @@ python -m tests.e2e.demo_env                    # a disposable demo: mock S3 wit
 ```
 
 The signing tests use the examples published in the AWS documentation. The unit tests that need ffmpeg skip themselves without it.
+
+## Releasing
+
+Push a tag: `git tag -a v3.2.0 -m "medialib 3.2.0" && git push origin v3.2.0`. The release workflow builds every download (the version goes into the program, the Windows file properties and the installer), and only once all of them have built publishes the release with `SHA256SUMS` and generated notes: every change since the previous tag, from the commit messages (a squash-merged pull request brings its list of changes), led by the tag's own message if it says more than a title. `scripts/release-notes.sh v3.2.0` shows them beforehand.
+
+- **Actions → release → Run workflow** is a dry run: it builds everything and writes the notes and checksums (shown on the run's page and kept as artifacts) but publishes nothing.
+- **Actions → release-notes → Run workflow** writes the notes into a release that already exists, leaving its files alone.
 
 ## Security
 

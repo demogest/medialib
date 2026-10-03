@@ -20,7 +20,7 @@ type Player struct {
 	ID       string
 	Name     string
 	Path     string
-	TitleArg string // {title} is replaced by the file name when a single item is opened
+	TitleArg string   // {title} is replaced by the file name when a single item is opened
 	Args     []string // extra arguments, put before the file (from "args" in config.json)
 }
 
