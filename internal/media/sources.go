@@ -209,18 +209,22 @@ func (s *LocalSource) List() ([]Item, error) {
 		}
 		seen := map[string]string{}
 		for _, e := range entries {
-			// A NAS keeps "Clips" and "clips" apart, Windows does not: both names open whichever one the server picks,
-			// so indexing both would list one folder twice and the other not at all. Keep the first.
+			// A NAS keeps "Clips" and "clips" apart, but Windows (and a share mounted without case) does not: both names
+			// open whichever one the server picks, so indexing both would list one folder twice and the other not at
+			// all. Keep the first. Where the two names do open two different things (a Linux disk), both are real.
 			lower := strings.ToLower(e.Name())
-			if twin, ok := seen[lower]; ok {
+			twin, ok := seen[lower]
+			if ok && sameFile(filepath.Join(cur.folder, twin), filepath.Join(cur.folder, e.Name())) {
 				where := ""
 				if cur.rel != "" {
 					where = cur.rel + "/"
 				}
-				s.warnings = append(s.warnings, fmt.Sprintf("“%s%s” and “%s%s” differ only by letter case. Windows can open only one of them, so the second is skipped. Rename one on the NAS itself to fix this.", where, twin, where, e.Name()))
+				s.warnings = append(s.warnings, fmt.Sprintf("“%s%s” and “%s%s” differ only by letter case. This computer can open only one of them, so the second is skipped. Rename one on the NAS itself to fix this.", where, twin, where, e.Name()))
 				continue
 			}
-			seen[lower] = e.Name()
+			if !ok {
+				seen[lower] = e.Name()
+			}
 			rel := e.Name()
 			if cur.rel != "" {
 				rel = cur.rel + "/" + e.Name()
@@ -248,6 +252,20 @@ func (s *LocalSource) List() ([]Item, error) {
 		}
 	}
 	return items, nil
+}
+
+// sameFile reports whether two names lead to one file or folder. When that cannot be told, it says yes: skipping a
+// twin is the safe side, listing one thing twice is not.
+func sameFile(a, b string) bool {
+	sa, err := os.Stat(a)
+	if err != nil {
+		return true
+	}
+	sb, err := os.Stat(b)
+	if err != nil {
+		return true
+	}
+	return os.SameFile(sa, sb)
 }
 
 func (s *LocalSource) Reader(it Item) (Reader, error) {

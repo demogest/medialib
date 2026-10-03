@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -173,15 +174,29 @@ func TestLocalSourceWarnsAboutCaseTwins(t *testing.T) {
 	if entries, _ := os.ReadDir(root); len(entries) < 2 {
 		t.Skip("this file system folds case")
 	}
+	// Two folders and two files that only differ by case, but are different things: both are real (a Linux disk).
 	_ = os.WriteFile(filepath.Join(root, "Clips", "a.mp4"), []byte("x"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "clips", "b.mp4"), []byte("x"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "Song.mp3"), []byte("x"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "song.mp3"), []byte("y"), 0o644)
+	// Two names for one file, which is what a share that folds case shows: listed once, with a warning.
+	_ = os.WriteFile(filepath.Join(root, "Movie.mkv"), []byte("x"), 0o644)
+	if err := os.Link(filepath.Join(root, "Movie.mkv"), filepath.Join(root, "movie.mkv")); err != nil {
+		t.Skip("no hard links here")
+	}
 	src := &LocalSource{root: root}
 	items, err := src.List()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || len(src.Warnings()) != 1 {
-		t.Errorf("items %d, warnings %v", len(items), src.Warnings())
+	var keys []string
+	for _, it := range items {
+		keys = append(keys, it.Key)
+	}
+	sort.Strings(keys)
+	if strings.Join(keys, " ") != "Clips/a.mp4 Movie.mkv Song.mp3 clips/b.mp4 song.mp3" || len(src.Warnings()) != 1 ||
+		!strings.Contains(src.Warnings()[0], "movie.mkv") {
+		t.Errorf("items %v, warnings %v", keys, src.Warnings())
 	}
 }
 
