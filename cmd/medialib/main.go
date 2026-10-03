@@ -18,8 +18,8 @@ const usage = `Media library and object-storage browser.
 
     medialib serve [--port 8766] [--host 127.0.0.1] [--no-browser]
     medialib desktop                                              the UI in its own window
-    medialib index [--library ID] [--limit N] [--workers 8] [--force]
-    medialib compact [--library ID]                               convert JPEG thumbnails to WebP (about half the size)
+    medialib index [--library ID | --all] [--limit N] [--workers 8] [--force]
+    medialib compact [--library ID]                               convert older thumbnails to AVIF or WebP (smaller)
     medialib add PATH [--name NAME]                               add a local folder (disk or NAS share)
     medialib libraries                                            list the libraries
     medialib connect --endpoint URL --access-key K ...            add an S3 / RustFS / MinIO / R2 ... connection
@@ -33,7 +33,8 @@ A library is a local folder, a NAS share, or a folder of an S3-compatible bucket
 index    Reads each MP4's own sample index and fetches only the bytes of a few real keyframes, which ffmpeg decodes
          into thumbnails. Incremental: unchanged files are skipped, removed files are dropped.
 serve    Runs the UI: library, storage browser, connections. Settings live in config.json (see MEDIALIB_HOME).
-         Set MEDIALIB_PASSWORD to protect a server that other computers can reach.
+         Set MEDIALIB_PASSWORD to protect a server that other computers can reach, and MEDIALIB_AUTO_INDEX=60
+         (or "auto_index": 60) to bring every library up to date every hour by itself.
 `
 
 func main() {

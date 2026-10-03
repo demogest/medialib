@@ -64,6 +64,10 @@ func cmdServe(cfg *config.Config, args []string, mode string) error {
 
 	served := make(chan error, 1)
 	go func() { served <- app.Serve(ctx, ln, web.FS()) }()
+	autoIndex := cfg.Settings().AutoIndex
+	if autoIndex > 0 {
+		go app.AutoIndex(ctx, time.Duration(autoIndex)*time.Minute)
+	}
 	time.Sleep(50 * time.Millisecond) // Serve fills in the address
 	url := fmt.Sprintf("http://127.0.0.1:%d/", ln.Addr().(*net.TCPAddr).Port)
 
@@ -82,6 +86,9 @@ func cmdServe(cfg *config.Config, args []string, mode string) error {
 		ps = append(ps, p.Name)
 	}
 	fmt.Printf("  players:     %s\n", strings.Join(ps, ", "))
+	if autoIndex > 0 {
+		fmt.Printf("  indexing:    every library, every %d minutes (auto_index)\n", autoIndex)
+	}
 	if !app.Loopback {
 		if cfg.Settings().Password != "" {
 			fmt.Println("Listening beyond this machine, protected by the password (MEDIALIB_PASSWORD or \"password\" in config.json).")

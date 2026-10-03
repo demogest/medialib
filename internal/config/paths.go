@@ -44,7 +44,8 @@ func fileExists(p string) bool {
 
 var winVar = regexp.MustCompile(`%([^%]+)%`)
 
-// ExpandVars expands environment variables ($NAME everywhere, %NAME% on Windows) and a leading ~.
+// ExpandVars expands environment variables ($NAME everywhere, %NAME% on Windows) and a leading ~. A name that is not
+// a variable that is set stays as it is: dollar signs are ordinary characters in folder names ("$ales", "D:\$Media").
 func ExpandVars(s string) string {
 	if runtime.GOOS == "windows" {
 		s = winVar.ReplaceAllStringFunc(s, func(m string) string {
@@ -54,7 +55,12 @@ func ExpandVars(s string) string {
 			return m
 		})
 	}
-	s = os.ExpandEnv(s)
+	s = os.Expand(s, func(name string) string {
+		if v, ok := os.LookupEnv(name); ok {
+			return v
+		}
+		return "$" + name
+	})
 	if s == "~" || strings.HasPrefix(s, "~/") || strings.HasPrefix(s, `~\`) {
 		if home, err := os.UserHomeDir(); err == nil {
 			s = home + s[1:]

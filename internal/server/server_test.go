@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/demogest/medialib/internal/config"
 	"github.com/demogest/medialib/internal/media"
@@ -284,5 +286,50 @@ func TestSearchFindsMediaByTextPinyinAndTypos(t *testing.T) {
 	}
 	if got := decode(t, e.do("GET", "/api/search?q=", "")); got["total"] != float64(0) {
 		t.Errorf("empty query: %v", got)
+	}
+}
+
+func TestAutoIndexKeepsReachableLibrariesUpToDate(t *testing.T) {
+	e := setup(t, true)
+	here, gone := t.TempDir(), t.TempDir()
+	add := func(path, name string) string {
+		d := decode(t, e.do("POST", "/api/libraries", `{"path": `+quote(path)+`, "name": `+quote(name)+`}`))
+		id, _ := d["id"].(string)
+		if id == "" {
+			t.Fatalf("%v", d)
+		}
+		return id
+	}
+	a, b := add(here, "Here"), add(gone, "Gone")
+	if err := e.app.RemoveLibrary("videos"); err != nil { // the default library points at the real ~/Videos
+		t.Fatal(err)
+	}
+	if err := os.Remove(gone); err != nil { // an unplugged disk
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go e.app.AutoIndex(ctx, 30*time.Millisecond)
+
+	finished := func(after float64) float64 {
+		t.Helper()
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if j, ok := e.app.Jobs()[a]; ok && j.State == "done" && j.Started > after {
+				return j.Started
+			}
+		}
+		t.Fatalf("no indexing pass finished: %v", e.app.Jobs())
+		return 0
+	}
+	first := finished(0)
+	if lib := decode(t, e.do("GET", "/api/library?lib="+a, "")); lib["updated"] == nil {
+		t.Errorf("the pass wrote no index: %v", lib)
+	}
+	finished(first) // and passes keep coming
+	if j, ok := e.app.Jobs()[b]; ok {
+		t.Errorf("an unreachable library was indexed (and would show as failed): %v", j)
+	}
+	if info := decode(t, e.do("GET", "/api/system", "")); info["auto_index"] != float64(0) {
+		t.Errorf("auto_index %v", info["auto_index"])
 	}
 }

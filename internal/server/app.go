@@ -44,11 +44,11 @@ type App struct {
 	Loopback bool        // bound to this computer only
 	Log      *log.Logger // one line per request when set (MEDIALIB_LOG=1)
 
-	mu     sync.RWMutex
-	stores map[string]*media.Store
+	mu       sync.RWMutex
+	stores   map[string]*media.Store
 	launched map[string]time.Time // recent player launches, see Launch
-	links  map[linkKey]link
-	jobs   map[string]*media.Job
+	links    map[linkKey]link
+	jobs     map[string]*media.Job
 }
 
 // NewApp builds the application state over a loaded config.
@@ -94,23 +94,35 @@ func (a *App) Describe(lib config.Library) (map[string]any, *media.Snapshot) {
 		}
 	}
 	out := map[string]any{"id": lib.ID, "name": lib.Name, "type": lib.Type, "location": config.Location(lib), "items": count, "updated": updated}
+	out["reachable"] = a.reachable(lib)
 	switch lib.Type {
-	case "local":
-		st, err := os.Stat(config.LocalRoot(lib))
-		out["reachable"] = err == nil && st.IsDir()
 	case "s3":
 		conn, ok := a.Cfg.Connection(lib.Connection)
-		out["connection"], out["bucket"], out["prefix"], out["reachable"] = lib.Connection, lib.Bucket, lib.Prefix, ok
+		out["connection"], out["bucket"], out["prefix"] = lib.Connection, lib.Bucket, lib.Prefix
 		if ok {
 			out["connection_name"] = conn.Name
 		} else {
 			out["connection_name"] = nil
 		}
+	case "local":
 	default:
-		out["reachable"] = true
 		out["convertible"] = true
 	}
 	return out, snap
+}
+
+// reachable reports whether a library's media can be read at all: its folder is there (a disk can be unplugged, a
+// share offline), or its connection still exists.
+func (a *App) reachable(lib config.Library) bool {
+	switch lib.Type {
+	case "local":
+		st, err := os.Stat(config.LocalRoot(lib))
+		return err == nil && st.IsDir()
+	case "s3":
+		_, ok := a.Cfg.Connection(lib.Connection)
+		return ok
+	}
+	return true
 }
 
 func (a *App) indexing(id string) bool {
@@ -196,6 +208,32 @@ func (a *App) StartIndex(lib config.Library, force bool) *media.Job {
 	return job
 }
 
+// AutoIndex keeps every library up to date while ctx lasts, for a server nobody presses "Update index" on: a first
+// pass soon after start (changes made while it was down), then one every interval after the previous pass ended, so
+// passes never overlap however long they take. Libraries go one after another, sharing the machine and the store
+// with whoever is browsing. One that cannot be reached is left alone: an unplugged disk is not a failed index.
+func (a *App) AutoIndex(ctx context.Context, every time.Duration) {
+	wait := min(time.Minute, every)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		for _, lib := range a.Cfg.Libraries() {
+			if !a.reachable(lib) {
+				continue
+			}
+			select {
+			case <-a.StartIndex(lib, false).Done():
+			case <-ctx.Done():
+				return
+			}
+		}
+		wait = every
+	}
+}
+
 // Jobs snapshots every indexing job.
 func (a *App) Jobs() map[string]media.JobState {
 	a.mu.RLock()
@@ -222,8 +260,16 @@ func (a *App) Link(lib config.Library, rec *media.Item) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	now := time.Now()
 	a.mu.Lock()
-	a.links[k] = link{u, time.Now().Add(12 * time.Hour)}
+	if len(a.links) >= 4096 { // a long-running server streams many files: forget the links that ran out
+		for key, l := range a.links {
+			if now.After(l.until) {
+				delete(a.links, key)
+			}
+		}
+	}
+	a.links[k] = link{u, now.Add(12 * time.Hour)}
 	a.mu.Unlock()
 	return u, nil
 }
@@ -330,7 +376,7 @@ func (a *App) SystemInfo() map[string]any {
 		"version": version.Version, "runtime": runtime.Version(), "platform": runtime.GOOS + "/" + runtime.GOARCH,
 		"ffmpeg": where(s.FFmpeg, "ffmpeg"), "ffprobe": where(s.FFprobe, "ffprobe"), "rclone": where(s.Rclone, "rclone"),
 		"config_dir": a.Cfg.Home(), "cache_dir": a.Cfg.CacheDir(), "port": a.Port, "listen": a.Listen, "mode": a.Mode,
-		"players": ps,
+		"players": ps, "auto_index": s.AutoIndex,
 	}
 }
 

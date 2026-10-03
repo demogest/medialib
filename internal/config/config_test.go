@@ -181,3 +181,50 @@ func TestParseINI(t *testing.T) {
 		t.Errorf("%v", m)
 	}
 }
+
+func TestAutoIndexFromTheFileOrTheEnvironment(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"auto_index": 90, "libraries": [{"id": "a", "type": "local", "path": "/x"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Settings().AutoIndex; got != 90 {
+		t.Errorf("auto_index %d", got)
+	}
+	t.Setenv("MEDIALIB_AUTO_INDEX", "15")
+	if got := cfg.Settings().AutoIndex; got != 15 {
+		t.Errorf("MEDIALIB_AUTO_INDEX gave %d", got)
+	}
+	t.Setenv("MEDIALIB_AUTO_INDEX", "-5")
+	if got := cfg.Settings().AutoIndex; got != 0 {
+		t.Errorf("a negative interval must mean off, got %d", got)
+	}
+	// it survives a save
+	if err := cfg.SetActive("a"); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(home, "config.json"))
+	if !strings.Contains(string(raw), `"auto_index": 90`) {
+		t.Errorf("not kept: %s", raw)
+	}
+}
+
+func TestExpandVarsKeepsDollarSignsThatAreNotVariables(t *testing.T) {
+	t.Setenv("MEDIALIB_TEST_ROOT", "/data")
+	t.Setenv("ales", "")
+	os.Unsetenv("ales")
+	for in, want := range map[string]string{
+		"$MEDIALIB_TEST_ROOT/videos":   "/data/videos",
+		"${MEDIALIB_TEST_ROOT}/videos": "/data/videos",
+		"/srv/$ales/videos":            "/srv/$ales/videos",
+		"/mnt/video$/x":                "/mnt/video$/x",
+		"/a/$1/$$":                     "/a/$1/$$",
+	} {
+		if got := ExpandVars(in); got != want {
+			t.Errorf("ExpandVars(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -39,6 +39,8 @@ export async function mount(root) {
         h('div.set-row', h('div.grow', 'medialib'), h('span.mono', info.version)),
         h('div.set-row', h('div.grow', 'Runtime'), h('span.mono', `${info.runtime} · ${info.platform}`)),
         h('div.set-row', h('div.grow', 'Mode'), h('span.mono', info.mode === 'desktop' ? 'Desktop app' : 'Web server')),
+        h('div.set-row', h('div.grow', h('div.set-name', 'Automatic indexing'), h('div.muted', '"auto_index" in config.json, or MEDIALIB_AUTO_INDEX: minutes between passes over every library.')),
+          h('span.mono', info.auto_index ? `Every ${info.auto_index} min` : 'Off')),
         h('div.set-row', h('div.grow', 'Settings and index'), h('code.mono.set-path', info.config_dir)),
         h('div.set-row', h('div.grow', 'Listening on'), h('span.mono', info.listen || `127.0.0.1:${info.port}`)))] : h('div.banner.error', 'Could not read system information.'));
   return {};

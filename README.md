@@ -77,6 +77,7 @@ Nothing about the page changes between the desktop app and the server: it is the
 - Set **`MEDIALIB_PASSWORD`** (or `"password"` in `config.json`) before opening the server to other computers. Every request then needs it (HTTP Basic: any user name). Without a password, other computers can browse libraries and thumbnails but cannot touch storage, connections or anything that changes state.
 - Serve it over HTTPS, for example behind Caddy or nginx: Basic authentication is sent with every request.
 - Playing in an external player (mpv, VLC ...) and the folder picker act on the computer running the server, so only a browser on that same computer can use them. From another computer a cover opens the stream in the browser, and **Copy playlist URL** hands the library to your own player.
+- New files on the disk, share or bucket show up after the next indexing run. Set **`MEDIALIB_AUTO_INDEX`** (or `"auto_index"` in `config.json`) to a number of minutes and the server runs one by itself: soon after it starts, then that long after each pass ends, over every library in turn. Libraries that cannot be reached at the time (a disk that is not plugged in) are skipped, not marked as failed. Without a server running, `medialib index --all` from cron or a scheduled task does the same once.
 - `MEDIALIB_HOST`, `MEDIALIB_PORT`, `MEDIALIB_HOME` and `MEDIALIB_LOG=1` (one log line per request) are read from the environment, which is how the container is configured. `GET /healthz` answers `ok` without a password.
 
 ### Command line
@@ -92,6 +93,7 @@ medialib ls nas                                        # buckets
 medialib ls nas:media/videos/ -r                       # objects
 medialib add-s3 nas media/videos --name "NAS videos"   # a bucket folder as a library
 medialib index --library nas-videos
+medialib index --all                                   # every library, one after another (for cron)
 ```
 
 Connect a store from the **Connect** page (or the command line), then browse it under **Storage**, or add a bucket folder as a library with **Library → Add a library → Bucket (S3)**.
@@ -110,7 +112,8 @@ A library that was set up through rclone keeps working. **Library → Manage →
 | `default_player` | Player id used until you pick one in the UI |
 | `rclone`, `ffmpeg`, `ffprobe` | Executable paths, if they aren't on `PATH` |
 | `workers` | Files indexed at once. The default depends on the CPU count and the library type. |
-| `thumb_quality` | WebP quality (1 to 100) of new thumbnails. Default 60; lower is smaller. `medialib compact` converts older JPEG thumbnails. |
+| `thumb_quality` | Quality (1 to 100) of new thumbnails, which are AVIF when ffmpeg can write it, else WebP. Default 65; lower is smaller. `medialib compact` converts older thumbnails. |
+| `auto_index` | Minutes between automatic indexing passes over every library while medialib runs. Default 0 (off); `MEDIALIB_AUTO_INDEX` takes precedence. |
 | `password` | Password for a server other computers can reach; `MEDIALIB_PASSWORD` takes precedence. |
 
 `default_bucket` is for keys that are limited to one bucket and so cannot list all of them.
@@ -144,6 +147,8 @@ Measured against the Python version this replaced (same machine, 4 cores):
 | a 50,000-item library, 8 clients | 3 requests/s | 17 requests/s |
 | indexing 24 short MP4s | 2.4 s | 0.75 s |
 | streaming a 300 MB local file | 2.0 GB/s | 1.8 GB/s (the loopback is the limit) |
+
+Searching 50,000 files takes 3 to 15 ms per query on a 4-core machine (typo-tolerant and pinyin matching included), and allocates nothing, so typing in the search box stays smooth in big libraries. Picking each video's cover reads the decoded frames' luma plane directly, about 20 times faster than going through every pixel's colour.
 
 The index is serialized once per change instead of once per request, answers to other computers are gzip-compressed, and all of a video's keyframes are decoded by a single ffmpeg process (byte-identical to decoding them one by one; it falls back to that if anything looks off), which matters most on Windows where starting a program is slow.
 

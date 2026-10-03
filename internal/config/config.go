@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -79,6 +80,7 @@ type Settings struct {
 	Workers       int
 	Password      string
 	ThumbQuality  int // WebP quality of new thumbnails, 1-100 (0: the default)
+	AutoIndex     int // minutes between automatic indexing passes over every library while serving (0: off)
 }
 
 type data struct {
@@ -94,6 +96,7 @@ type data struct {
 	Workers       int          `json:"workers,omitempty"`
 	Password      string       `json:"password,omitempty"`
 	ThumbQuality  int          `json:"thumb_quality,omitempty"`
+	AutoIndex     int          `json:"auto_index,omitempty"`
 }
 
 // Config is config.json held in memory. It is safe for concurrent use; read it through the accessors.
@@ -205,7 +208,7 @@ func (c *Config) fromMap(m map[string]json.RawMessage) error {
 	fields := map[string]any{
 		"rclone": &d.Rclone, "ffmpeg": &d.FFmpeg, "ffprobe": &d.FFprobe, "port": &d.Port, "default_player": &d.DefaultPlayer,
 		"players": &d.Players, "active": &d.Active, "connections": &d.Connections, "libraries": &d.Libraries,
-		"workers": &d.Workers, "password": &d.Password, "thumb_quality": &d.ThumbQuality,
+		"workers": &d.Workers, "password": &d.Password, "thumb_quality": &d.ThumbQuality, "auto_index": &d.AutoIndex,
 	}
 	if _, ok := m["libraries"]; ok {
 		d.Libraries = nil
@@ -270,7 +273,8 @@ func (c *Config) save() error {
 	return os.Rename(tmp, c.Path())
 }
 
-var keyOrder = []string{"rclone", "ffmpeg", "ffprobe", "port", "default_player", "players", "active", "connections", "libraries", "workers", "password"}
+var keyOrder = []string{"rclone", "ffmpeg", "ffprobe", "port", "default_player", "players", "active", "connections", "libraries", "workers",
+	"thumb_quality", "auto_index", "password"}
 
 func marshalOrdered(m map[string]json.RawMessage) ([]byte, error) {
 	var sb strings.Builder
@@ -317,8 +321,14 @@ func (c *Config) Settings() Settings {
 	if env := os.Getenv("MEDIALIB_PASSWORD"); env != "" {
 		pw = env
 	}
+	auto := c.d.AutoIndex
+	if env := os.Getenv("MEDIALIB_AUTO_INDEX"); env != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(env)); err == nil {
+			auto = n
+		}
+	}
 	return Settings{Rclone: c.d.Rclone, FFmpeg: c.d.FFmpeg, FFprobe: c.d.FFprobe, Port: c.d.Port, DefaultPlayer: c.d.DefaultPlayer,
-		Players: append([]Player(nil), c.d.Players...), Workers: c.d.Workers, Password: pw, ThumbQuality: c.d.ThumbQuality}
+		Players: append([]Player(nil), c.d.Players...), Workers: c.d.Workers, Password: pw, ThumbQuality: c.d.ThumbQuality, AutoIndex: max(0, auto)}
 }
 
 // Libraries returns a copy of the library list.
