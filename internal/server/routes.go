@@ -64,6 +64,7 @@ func (a *App) Handler(web fs.FS) http.Handler {
 	def("GET /api/playlist.m3u8", open, a.playlist)
 	def("GET /media/{rest...}", open, a.media)
 	def("POST /api/play", machine, a.play)
+	def("POST /api/reveal", machine, a.reveal)
 	def("POST /api/libraries", private, a.addLibrary)
 	def("POST /api/libraries/remove", private, func(c *Ctx) (any, error) {
 		b, err := c.Body()
@@ -575,6 +576,40 @@ func (a *App) play(c *Ctx) (any, error) {
 		return nil, err
 	}
 	return map[string]any{"ok": true, "player": name, "count": len(recs)}, nil
+}
+
+// revealFile shows a file in the system's file manager (a variable so tests need not open one).
+var revealFile = players.Reveal
+
+// reveal opens the folder of an item of a local library in Explorer, Finder or the file manager, the file selected.
+func (a *App) reveal(c *Ctx) (any, error) {
+	b, err := c.Body()
+	if err != nil {
+		return nil, err
+	}
+	lib, err := c.Library(b.Str("lib"))
+	if err != nil {
+		return nil, err
+	}
+	if lib.Type != "local" {
+		return nil, fail(400, "Only the files of a local library are on this computer's disk.")
+	}
+	snap, err := a.store(lib).Get()
+	if err != nil {
+		return nil, err
+	}
+	rec, ok := snap.ByID[b.Str("id")]
+	if !ok {
+		return nil, fail(404, "unknown media id")
+	}
+	path := LocalPath(lib, rec)
+	if !players.Reachable(path) {
+		return nil, fail(404, "File not reachable: "+path)
+	}
+	if err := revealFile(path); err != nil {
+		return nil, fmt.Errorf("no file manager could be started (%w)", err)
+	}
+	return map[string]any{"ok": true, "path": path}, nil
 }
 
 // ---------------------------------------------------------------- connections

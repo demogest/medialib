@@ -114,6 +114,8 @@ tr:has(.ic) .nm-in .ic { flex: none; }
 /* the bar adapts to the width of the list area, which the details panel and sidebar eat into */
 @container st (max-width: 1000px) { .st-bar .lbl { display: none; } .st-bar .btn { padding: 0 10px; } }
 @container st (max-width: 700px) { .st-bar { flex-wrap: wrap; } .st-filter { order: 9; flex: 1 1 100%; } .sel-actions .lbl { display: none; } }
+/* and so does the table: the dates go before the names are cut short, or the dates themselves are cut off */
+@container st (max-width: 620px) { .st-table td.mtime, .st-table th.mtime { display: none; } .st-table { min-width: 0; } }
 
 /* narrow screens: sidebar and details become overlays */
 @media (max-width: 1100px) {

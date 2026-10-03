@@ -112,7 +112,26 @@
 .copy:hover { background: var(--hover); color: var(--text); }
 .card:hover .copy, .copy:focus-visible { opacity: 1; }
 @media (hover: none) { .copy { opacity: 1; } }
+.card .title { cursor: pointer; }
+.card .title:hover { text-decoration: underline; text-underline-offset: 2px; }
 .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+
+/* details dialog: the keyframes, and what the index knows */
+.details { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.det-view > img, .det-ph { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; background: #000; object-fit: contain; }
+.det-ph { display: grid; place-content: center; justify-items: center; gap: 6px; background: var(--surface-2); color: var(--muted); font-size: 12.5px; }
+.det-ph .ic { width: 32px; height: 32px; opacity: .7; }
+.det-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.det-strip button { padding: 0; border: 2px solid transparent; border-radius: 7px; background: none; overflow: hidden; cursor: pointer; }
+.det-strip button[aria-pressed=true] { border-color: var(--accent); }
+.det-strip img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.det-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 14px; margin: 0; font-size: 13.5px; }
+.det-meta dt { color: var(--muted); }
+.det-meta dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.det-path { font-size: 12px; }
+.linkish { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-align: left; cursor: pointer; }
+.linkish:hover { text-decoration: underline; }
+@media (max-width: 700px) { .details { grid-template-columns: 1fr; } }
 
 /* libraries dialog */
 .lib-list { list-style: none; margin: 0; padding: 0; }

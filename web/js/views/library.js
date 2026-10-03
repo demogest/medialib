@@ -2,7 +2,7 @@
 import { h, fill, $, $$, Scope, debounce } from '../lib/dom.js';
 import { icon, kindIcon } from '../lib/icons.js';
 import { get, post, put } from '../lib/api.js';
-import { bytes, clock, collator, extOf, leaf, num, resLabel, span, stem, when } from '../lib/fmt.js';
+import { bytes, clock, collator, extOf, leaf, num, plural, resLabel, span, stem, when } from '../lib/fmt.js';
 import { href, navigate, replace } from '../lib/router.js';
 import { loadLibraries, loadConnections, on, pokeWatcher, running, state, takeLibraryAction } from '../lib/state.js';
 import { store } from '../lib/store.js';
@@ -20,6 +20,10 @@ const inScope = (it, s) => !s || it.dir === s || it.dir.startsWith(s + '/');
 const TYPE_LABEL = { local: 'Local folder', s3: 'S3 bucket', rclone: 'S3 via rclone' };
 // A file's path on the computer running medialib, written the way that computer writes paths (D:\Videos\a.mp4 on
 // Windows, /srv/videos/a.mp4 elsewhere), whatever computer the browser is on.
+// A browser on the computer that serves the library (the desktop app, or one next to the server): only there can
+// medialib open a folder on the screen.
+const onThisComputer = () => ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(location.hostname);
+const revealLabel = () => ({ windows: 'Show in Explorer', darwin: 'Show in Finder' })[(state.system?.platform || '').split('/')[0]] || 'Show in file manager';
 const localPath = (root, key) => {
   const sep = /^[A-Za-z]:|^\\\\|\\/.test(root) ? '\\' : '/';
   return root.replace(/[\\/]+$/, '') + sep + key.split('/').join(sep);
@@ -114,6 +118,53 @@ export async function mount(root, parts) {
   async function copy(text, what) {
     try { await navigator.clipboard.writeText(text); toast(what + ' copied', { kind: 'ok' }); } catch { toast('Copy failed: ' + text, { kind: 'error' }); }
   }
+  const filePath = it => S.info.type === 'local' ? localPath(S.info.location, it.key) : S.info.type === 's3' ? `s3://${S.info.bucket}/${it.key}` : it.key;
+  const canReveal = () => S.info.type === 'local' && onThisComputer();
+  async function showInFolder(it) {
+    try { await post('/api/reveal', { lib: S.lib, id: it.id }); } catch (e) { toastError('Could not open the folder', e); }
+  }
+
+  // Everything known about one file: all its keyframes (arrow keys step through them), what the index says, where it is.
+  function showDetails(it) {
+    const frames = it.frames || 0;
+    let cur = Math.min(it.cover ?? 0, Math.max(0, frames - 1));
+    const big = frames ? h('img', { alt: '', src: thumb(it, cur) })
+      : h('div.det-ph', icon(it.kind === 'audio' ? 'music' : 'film', 'lg'), h('span', it.indexed === false && !it.error ? 'Not indexed yet' : 'No preview'));
+    const strip = frames > 1 ? h('div.det-strip', Array.from({ length: frames }, (_, i) =>
+      h('button', { type: 'button', 'aria-label': `Keyframe ${i + 1} of ${frames}`, 'aria-pressed': String(i === cur), onclick: () => pick(i) },
+        h('img', { alt: '', loading: 'lazy', src: thumb(it, i) })))) : null;
+    const pick = i => {
+      cur = (i + frames) % frames;
+      big.src = thumb(it, cur);
+      for (const [j, b] of [...strip.children].entries()) b.setAttribute('aria-pressed', String(j === cur));
+    };
+    const row = (k, v) => (v == null || v === '' ? null : [h('dt', k), h('dd', v)]);
+    const res = resLabel(it.width, it.height);
+    const status = it.error ? 'Failed: ' + it.error : it.indexed === false ? 'Not indexed yet'
+      : plural(frames, 'keyframe') + (it.note ? ' (read with ffmpeg)' : '');
+    const meta = h('dl.det-meta',
+      row('Folder', h('button.linkish', { type: 'button', title: 'Show this folder', onclick: () => { m.close(); go(it.dir); } }, it.dir || 'Top level')),
+      row('Size', h('span', { title: num(it.size) + ' bytes' }, bytes(it.size))),
+      row('Length', it.duration ? clock(it.duration) : null),
+      row('Picture', it.width ? `${it.width} × ${it.height}` + (res ? ' · ' + res : '') + (it.fps ? ` · ${it.fps} fps` : '') : null),
+      row('Codec', it.codec ? it.codec + (it.kind === 'video' ? (it.audio ? ' · with sound' : ' · no sound') : '') : null),
+      row(S.info.type === 'local' ? 'Modified' : 'Uploaded', h('span', { title: it.mtime }, when(it.mtime))),
+      row(S.info.type === 'local' ? 'File' : 'Object', h('code.det-path', filePath(it))),
+      row('Index', status));
+    const m = modal({
+      title: it.name, size: 'wide', body: h('div.details', h('div.det-view', big, strip), meta),
+      actions: [
+        canReveal() ? { label: revealLabel(), left: true, keepOpen: true, onClick: () => showInFolder(it) } : null,
+        { label: S.info.type === 'local' ? 'Copy path' : 'Copy key', keepOpen: true, onClick: () => copy(S.info.type === 'local' ? filePath(it) : it.key, 'Path') },
+        { label: 'Copy stream URL', keepOpen: true, onClick: () => copy(mediaUrl(it), 'Stream URL') },
+        { label: 'Play', primary: true, onClick: () => play([it.id]) },
+      ].filter(Boolean),
+    });
+    m.el.addEventListener('keydown', e => {
+      if (frames < 2 || e.target.closest('input, textarea')) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); pick(cur + 1); } else if (e.key === 'ArrowLeft') { e.preventDefault(); pick(cur - 1); }
+    });
+  }
 
   // ---------------------------------------------------------------- folder tree
   function buildTree(items) {
@@ -207,7 +258,7 @@ export async function mount(root, parts) {
     if (it.duration) cover.append(h('span.badge.br', clock(it.duration)));
     if (it.frames > 1) cover.append(h('span.ticks', Array.from({ length: it.frames }, () => h('i'))));
     const hint = h('span.playhint'); hint.innerHTML = PLAY_HINT; cover.append(hint);
-    const title = h('div.title', { title: it.name }, stem(it.name));
+    const title = h('div.title', { title: it.name + '\nClick for details' }, stem(it.name));
     const sub = h('div.sub', [entry.sub, bytes(it.size)].filter(Boolean).join(' · '));
     const cp = h('button.copy', { type: 'button', title: 'Copy stream URL', 'aria-label': 'Copy stream URL for ' + it.name }, icon('copy', 'sm'));
     art.append(cover, h('div.meta', title, cp, sub));
@@ -780,6 +831,7 @@ export async function mount(root, parts) {
     const it = S.byId.get(cardEl.dataset.id);
     if (e.target.closest('.cover')) play([it.id]);
     else if (e.target.closest('.copy')) copy(mediaUrl(it), 'Stream URL');
+    else if (e.target.closest('.title')) showDetails(it);
   });
   groups.addEventListener('contextmenu', e => {
     const cardEl = e.target.closest('.card');
@@ -787,6 +839,8 @@ export async function mount(root, parts) {
     const it = S.byId.get(cardEl.dataset.id);
     contextMenu(e, [
       { label: 'Play', icon: 'play', onClick: () => play([it.id]) },
+      { label: 'Details…', icon: 'info', onClick: () => showDetails(it) },
+      canReveal() ? { label: revealLabel(), icon: 'folder', onClick: () => showInFolder(it) } : null,
       { label: 'Copy stream URL', icon: 'link', onClick: () => copy(mediaUrl(it), 'Stream URL') },
       { label: S.info.type === 'local' ? 'Copy file path' : 'Copy object key', icon: 'copy', onClick: () => copy(S.info.type === 'local' ? localPath(S.info.location, it.key) : it.key, 'Path') },
       S.info.type === 's3' ? { label: 'Show in Storage', icon: 'storage', onClick: () => navigate('storage', S.info.connection, S.info.bucket, ...it.key.split('/').slice(0, -1)) } : null,

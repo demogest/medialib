@@ -343,3 +343,42 @@ func TestAutoIndexKeepsReachableLibrariesUpToDate(t *testing.T) {
 		t.Errorf("auto_index %v", info["auto_index"])
 	}
 }
+
+func TestRevealShowsALocalFileOnThisComputerOnly(t *testing.T) {
+	e := setup(t, false)
+	folder := t.TempDir()
+	if err := os.WriteFile(filepath.Join(folder, "clip.mp4"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	add := decode(t, e.do("POST", "/api/libraries", `{"path": `+quote(folder)+`, "name": "Clips"}`))
+	lib, _ := e.cfg.Library(add["id"].(string))
+	it := media.NewItem("clip.mp4", "clip.mp4", "", "video", 1, "2026-01-01T00:00:00Z")
+	gone := media.NewItem("gone.mp4", "gone.mp4", "", "video", 1, "2026-01-01T00:00:00Z")
+	if _, err := media.SaveLibrary(e.cfg, lib, map[string]media.Item{it.ID: it, gone.ID: gone}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var shown []string
+	defer func(old func(string) error) { revealFile = old }(revealFile)
+	revealFile = func(p string) error { shown = append(shown, p); return nil }
+
+	body := func(id string) string { return `{"lib": ` + quote(lib.ID) + `, "id": ` + quote(id) + `}` }
+	if rec := e.do("POST", "/api/reveal", body(it.ID)); rec.Code != 200 || len(shown) != 1 || shown[0] != filepath.Join(folder, "clip.mp4") {
+		t.Fatalf("%d %s %v", rec.Code, rec.Body.String(), shown)
+	}
+	for name, c := range map[string]struct {
+		body   string
+		mod    []func(*http.Request)
+		status int
+	}{
+		"another computer": {body(it.ID), []func(*http.Request){remote}, 403},
+		"missing file":     {body(gone.ID), nil, 404},
+		"unknown id":       {body("000000000000"), nil, 404},
+	} {
+		if rec := e.do("POST", "/api/reveal", c.body, c.mod...); rec.Code != c.status {
+			t.Errorf("%s: %d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+	if len(shown) != 1 {
+		t.Errorf("revealed %v", shown)
+	}
+}

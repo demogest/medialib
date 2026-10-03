@@ -46,6 +46,11 @@ export async function loadConnections() {
   emit('connections');
   return state.connections;
 }
+// What the server runs on (platform, version ...): failing to read it is no reason to stop the app.
+export async function loadSystem() {
+  try { state.system = await get('/api/system'); } catch { state.system = null; }
+  return state.system;
+}
 export async function loadPlayers() {
   const j = await get('/api/players');
   state.players = j.players;

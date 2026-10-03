@@ -12,6 +12,7 @@ It runs as a **desktop app** on your own machine, or as a plain **web server** y
 - Five real keyframes per video; hover a cover to scrub through them. The indexer reads an MP4's own sample index and fetches only the bytes of the chosen keyframes (about 1 to 4 MB per video, even over the network). H.264, HEVC and AV1; other formats fall back to ffmpeg seeking. Indexing is incremental and multithreaded.
 - Libraries can be a local folder, a NAS share, or a bucket folder read straight through the S3 API.
 - Click a cover to open it in mpv, VLC, PotPlayer, MPC or the system default. Play a whole folder as a playlist, or shuffled, or copy its stream URL.
+- Click a file's name (or right-click → **Details**) for all its keyframes (arrow keys step through them), codec, frame rate, sound and full path. In a local library, **Show in Explorer** (Finder, or the file manager on Linux) opens its folder with the file selected.
 
 **Storage** (new in 2.0)
 - Connect to **RustFS, MinIO, Amazon S3, Cloudflare R2, Backblaze B2, Wasabi, Alibaba OSS, Tencent COS, DigitalOcean Spaces, Google Cloud Storage** (interoperability mode) or anything else that speaks S3.
