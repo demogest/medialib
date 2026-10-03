@@ -287,6 +287,16 @@ func TestSearchFindsMediaByTextPinyinAndTypos(t *testing.T) {
 	if got := decode(t, e.do("GET", "/api/search?q=", "")); got["total"] != float64(0) {
 		t.Errorf("empty query: %v", got)
 	}
+	// filters on their own list what passes them, unranked; with words they narrow the matches
+	if got := decode(t, e.do("GET", "/api/search?lib="+lib.ID+"&ids=1&limit=0&q="+url.QueryEscape("res>=1080 size<1k"), "")); got["total"] != float64(3) || got["ranked"] != false {
+		t.Errorf("filters only: %v", got)
+	}
+	if got := decode(t, e.do("GET", "/api/search?q="+url.QueryEscape("holiday res>=1080"), "")); got["total"] != float64(1) || got["ranked"] != true {
+		t.Errorf("words and filters: %v", got)
+	}
+	if got := decode(t, e.do("GET", "/api/search?q="+url.QueryEscape("res>=4k"), "")); got["total"] != float64(0) {
+		t.Errorf("4k: %v", got)
+	}
 }
 
 func TestAutoIndexKeepsReachableLibrariesUpToDate(t *testing.T) {

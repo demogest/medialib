@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -66,9 +67,11 @@ func (it *Item) fillPinyin() {
 
 func newItem(key, name, dir, kind string, size int64, mtime string) Item {
 	id := sha1.Sum([]byte(key))
-	ver := sha1.Sum([]byte(fmt.Sprintf("%s|%d|%s", key, size, mtime)))
-	return Item{ID: hex.EncodeToString(id[:])[:12], Key: key, Name: name, Dir: dir, Kind: kind, Size: size, MTime: mtime,
-		Ver: hex.EncodeToString(ver[:])[:10]}
+	v := make([]byte, 0, len(key)+len(mtime)+24) // key|size|mtime
+	v = append(append(strconv.AppendInt(append(append(v, key...), '|'), size, 10), '|'), mtime...)
+	ver := sha1.Sum(v)
+	return Item{ID: hex.EncodeToString(id[:6]), Key: key, Name: name, Dir: dir, Kind: kind, Size: size, MTime: mtime,
+		Ver: hex.EncodeToString(ver[:5])}
 }
 
 // Data is the content of a library's library.json.
@@ -96,8 +99,9 @@ func SaveLibrary(cfg *config.Config, lib config.Library, recs map[string]Item, w
 	if warnings == nil {
 		warnings = []string{}
 	}
-	text, err := encodeData(Data{Library: lib.ID, Name: lib.Name, Type: lib.Type, Location: config.Location(lib),
-		Updated: time.Now().Format(time.RFC3339), Warnings: warnings, Items: items})
+	d := Data{Library: lib.ID, Name: lib.Name, Type: lib.Type, Location: config.Location(lib),
+		Updated: time.Now().Format(time.RFC3339), Warnings: warnings, Items: items}
+	text, err := encodeData(d)
 	if err != nil {
 		return false, err
 	}
@@ -120,8 +124,18 @@ func SaveLibrary(cfg *config.Config, lib config.Library, recs map[string]Item, w
 		return false, nil
 	}
 	_ = os.Remove(legacyPath(path)) // the plain library.json of an earlier version is superseded
+	published.Store(path, &savedIndex{stamp: stampOf(path), data: &d})
 	return true, nil
 }
+
+// savedIndex is an index this process has just written, kept so a Store in the same process takes it as it is
+// instead of reading and decoding the file again (half a second for 50,000 files, every few seconds while indexing).
+type savedIndex struct {
+	stamp fileStamp
+	data  *Data
+}
+
+var published sync.Map // index path -> *savedIndex
 
 // LoadLibrary reads a library's index; a library never indexed is empty.
 func LoadLibrary(cfg *config.Config, lib config.Library) (*Data, error) {
@@ -219,7 +233,14 @@ func (s *Store) Get() (*Snapshot, error) {
 	if s.snap != nil && m == s.stamp {
 		return s.snap, nil
 	}
-	d, err := LoadLibrary(s.cfg, s.lib)
+	var d *Data
+	var err error
+	if v, ok := published.Load(path); ok && m[1] == (fileStamp{}) && v.(*savedIndex).stamp == m[0] {
+		d = v.(*savedIndex).data // the file is exactly what this process wrote
+		published.CompareAndDelete(path, v)
+	} else {
+		d, err = LoadLibrary(s.cfg, s.lib)
+	}
 	if err != nil {
 		if s.snap != nil {
 			return s.snap, nil // keep serving the last good index

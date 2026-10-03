@@ -37,9 +37,11 @@ func (a *App) searchLibraries(libs []config.Library, q search.Query) []searchHit
 
 // GET /api/search?q=...[&lib=ID][&limit=N][&ids=1]
 //
-// Looks for files by name, folder, extension, codec or resolution, in Chinese by pinyin, and loosely. Without lib every
-// library is searched. limit defaults to 30 and 0 means no limit. With ids=1 (and a lib) only the ids come back, in
-// order of relevance: that is what the library view filters its covers by.
+// Looks for files by name, folder, extension, codec or resolution, in Chinese by pinyin, and loosely; filters such as
+// dur>1h, size<2g, date>=2024-05 or res>=1080 narrow it down, or list files on their own. Without lib every library
+// is searched. limit defaults to 30 and 0 means no limit. With ids=1 (and a lib) only the ids come back, in order of
+// relevance: that is what the library view filters its covers by. ranked is false when the query was only filters, so
+// the order means nothing.
 func (a *App) searchMedia(c *Ctx) (any, error) {
 	q := search.Parse(c.Arg("q"))
 	limit, err := c.Int("limit", 30)
@@ -55,7 +57,7 @@ func (a *App) searchMedia(c *Ctx) (any, error) {
 		libs = []config.Library{lib}
 	}
 	if q.Empty() {
-		return map[string]any{"total": 0, "results": []any{}, "ids": []string{}}, nil
+		return map[string]any{"total": 0, "results": []any{}, "ids": []string{}, "ranked": false}, nil
 	}
 	hits := a.searchLibraries(libs, q)
 	total := len(hits)
@@ -67,7 +69,7 @@ func (a *App) searchMedia(c *Ctx) (any, error) {
 		for i, h := range hits {
 			ids[i] = h.snap.Data.Items[h.index].ID
 		}
-		return map[string]any{"total": total, "ids": ids}, nil
+		return map[string]any{"total": total, "ids": ids, "ranked": q.HasWords()}, nil
 	}
 	out := make([]map[string]any, len(hits))
 	for i, h := range hits {
@@ -78,5 +80,5 @@ func (a *App) searchMedia(c *Ctx) (any, error) {
 			"frames": it.Frames, "cover": it.Cover, "indexed": it.Indexed, "score": h.score,
 		}
 	}
-	return map[string]any{"total": total, "results": out}, nil
+	return map[string]any{"total": total, "results": out, "ranked": q.HasWords()}, nil
 }

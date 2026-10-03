@@ -1,13 +1,14 @@
 package media
 
 import (
-	"path/filepath"
-
 	"encoding/json"
-	"github.com/demogest/medialib/internal/config"
+	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/demogest/medialib/internal/config"
 )
 
 func sampleData() Data {
@@ -121,5 +122,60 @@ func TestLegacyIndexIsReadAndReplaced(t *testing.T) {
 	again, err := LoadLibrary(cfg, lib)
 	if err != nil || len(again.Items) != len(d.Items) {
 		t.Fatalf("reload: %v", err)
+	}
+}
+
+// A store in the process that saved the index takes what was saved as it is; one in another process reads the file.
+func TestStoreTakesAnIndexSavedInThisProcess(t *testing.T) {
+	cfg, _ := config.Load(t.TempDir())
+	lib := cfg.Libraries()[0]
+	store := NewStore(cfg, lib)
+	recs := map[string]Item{}
+	for _, it := range sampleData().Items {
+		recs[it.ID] = it
+	}
+	if _, err := SaveLibrary(cfg, lib, recs, nil); err != nil {
+		t.Fatal(err)
+	}
+	saved, ok := published.Load(libFile(cfg, lib))
+	if !ok {
+		t.Fatal("nothing published")
+	}
+	snap, err := store.Get()
+	if err != nil || snap.Data != saved.(*savedIndex).data || len(snap.ByID) != 3 {
+		t.Fatalf("the store decoded the file again (or failed): %v", err)
+	}
+	if _, still := published.Load(libFile(cfg, lib)); still {
+		t.Error("the handed-over index is still held")
+	}
+	// another process writes the next version: the store reads it from disk
+	if _, err := SaveLibrary(cfg, lib, map[string]Item{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	published.Delete(libFile(cfg, lib))
+	if snap, err := store.Get(); err != nil || len(snap.Data.Items) != 0 {
+		t.Fatalf("%v %v", snap, err)
+	}
+}
+
+func BenchmarkDecodeIndex(b *testing.B) {
+	d := Data{Library: "x", Name: "x", Type: "local", Location: "/x", Updated: "now", Warnings: []string{}}
+	for i := 0; i < 50000; i++ {
+		dir := fmt.Sprintf("shows/season %d/disc %d", i%37, i%11)
+		name := fmt.Sprintf("Some Show Name S%02dE%03d 1080p WEB-DL x265 [%d].mp4", i%37, i, i)
+		it := NewItem(dir+"/"+name, name, dir, "video", int64(i)*1000003, "2026-01-02T03:04:05Z")
+		it.Duration, it.Width, it.Height, it.Codec, it.Frames, it.Indexed = 1432.5, 1920, 1080, "hvc1", 5, true
+		d.Items = append(d.Items, it)
+	}
+	raw, err := encodeData(d)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := decodeData(raw); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
