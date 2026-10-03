@@ -1,6 +1,6 @@
 ; Inno Setup script for the Windows desktop app. Build with scripts/package-windows.ps1 (it passes /DAppVersion and /DSourceExe).
 #ifndef AppVersion
-  #define AppVersion "3.1.0"
+  #define AppVersion "3.2.0"
 #endif
 #ifndef SourceExe
   #define SourceExe "..\dist\medialib-desktop.exe"

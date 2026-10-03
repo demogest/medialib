@@ -168,7 +168,8 @@ The signing tests use the examples published in the AWS documentation. The unit 
 
 Push a tag: `git tag -a v3.2.0 -m "medialib 3.2.0" && git push origin v3.2.0`. The release workflow builds every download (the version goes into the program, the Windows file properties and the installer), packs them under their release names (`scripts/package-release.sh`), and only once all of them have built publishes the release with `SHA256SUMS` and generated notes: every change since the previous tag, from the commit messages (a squash-merged pull request brings its list of changes), led by the tag's own message if it says more than a title. `scripts/release-notes.sh v3.2.0` shows them beforehand.
 
-- **Actions → release → Run workflow** is a dry run: it builds everything and writes the notes and checksums (shown on the run's page and kept as artifacts) but publishes nothing.
+- **Actions → release → Run workflow** on `main`, with a version and **publish** ticked, does the same without a tag of your own: it tags the commit it built and publishes the release (it refuses a version that is already tagged, or anything but `vX.Y.Z`).
+- Without **publish** it is a dry run: it builds everything and writes the notes and checksums (shown on the run's page and kept as artifacts) but publishes nothing.
 - **Actions → release-notes → Run workflow** writes the notes into a release that already exists, leaving its files alone.
 
 ## Security
