@@ -1,7 +1,7 @@
 // Formatting helpers.
 export const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 export const num = n => (n ?? 0).toLocaleString('en-US');
-const UNITS = ['KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+const UNITS = ['KB', 'MB', 'GB', 'TB', 'PB']; // 1024-based, as file managers count
 export const bytes = n => {
   n = n || 0;
   if (n < 1024) return n + ' B';
@@ -16,6 +16,7 @@ export const clock = s => {
   return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
 };
 export const span = s => {
+  if (s > 0 && s < 59.5) return `${Math.round(s)} s`;
   const h = Math.floor(s / 3600), m = Math.round(s % 3600 / 60);
   return h ? `${h} h ${m} min` : `${m} min`;
 };

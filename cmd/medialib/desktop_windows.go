@@ -192,9 +192,9 @@ func runDesktop(url string) error {
 	}
 	// Paint the web view in the page's own colour while the first page loads, so there is no white flash at night.
 	if os.Getenv("WEBVIEW2_DEFAULT_BACKGROUND_COLOR") == "" {
-		bg := "FFF5F6F8"
+		bg := "FFF6F7F9"
 		if systemUsesDarkApps() {
-			bg = "FF0F1114"
+			bg = "FF0B0D11"
 		}
 		os.Setenv("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", bg)
 	}

@@ -13,7 +13,7 @@ import { clock } from '../lib/fmt.js';
 
 function commands() {
   const out = [];
-  SECTIONS.forEach((s, i) => out.push({ group: 'Go to', label: s.label, hint: s.hint, icon: s.icon, key: i < 4 ? `Alt+${i + 1}` : 'Alt+5', run: () => navigate(s.id) }));
+  SECTIONS.forEach((s, i) => out.push({ group: 'Go to', label: s.label, hint: s.hint, icon: s.icon, key: i < 5 ? `Alt+${i + 1}` : undefined, run: () => navigate(s.id) }));
   for (const l of state.libs) out.push({ group: 'Libraries', label: l.name, hint: l.type === 'local' ? l.path : `${l.bucket || ''}/${l.prefix || ''}`, icon: l.type === 'local' ? 'folder' : 'cloud', run: () => navigate('library', l.id) });
   for (const c of state.connections) out.push({ group: 'Stores', label: c.name, hint: c.endpoint, icon: 'server', run: () => navigate('storage', c.id) });
   out.push(

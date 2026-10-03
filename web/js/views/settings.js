@@ -237,6 +237,14 @@ export async function mount(root) {
     refresh();
   }
 
+  // ---------------------------------------------------------------- cloud storage
+  function cloud() {
+    const n = state.connections.length;
+    return [h('div.section-title', 'Cloud storage'), h('div.card-box.set-card',
+      row('Connections', n ? `${plural(n, 'store')} connected: ${state.connections.map(c => c.name).join(', ')}.` : 'Amazon S3, Cloudflare R2, Backblaze B2, MinIO, RustFS and anything else that speaks S3: browse and manage buckets, or make a bucket folder a library.',
+        h('a.btn.small', { href: '#/connections' }, icon(n ? 'plug' : 'plus', 'sm'), n ? 'Manage' : 'Connect a store')))];
+  }
+
   // ---------------------------------------------------------------- about
   function about() {
     return [h('div.section-title', 'About'), h('div.card-box.set-card',
@@ -247,7 +255,7 @@ export async function mount(root) {
     if (!info) { fill(body, appearance(), h('div.banner.error', 'Could not read the settings.')); return; }
     fill(body,
       editable() ? null : h('div.banner', icon('info', 'sm'), 'Settings can be changed on the computer running medialib, or after signing in.'),
-      appearance(), updates(), indexing(), playersCard(), tools(), files(), about());
+      appearance(), updates(), indexing(), playersCard(), cloud(), tools(), files(), about());
   }
 
   offs.push(on('activity', () => {

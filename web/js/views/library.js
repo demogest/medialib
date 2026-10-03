@@ -2,7 +2,7 @@
 import { h, fill, $, $$, Scope, debounce } from '../lib/dom.js';
 import { icon, kindIcon } from '../lib/icons.js';
 import { get, post, put } from '../lib/api.js';
-import { bytes, clock, collator, extOf, leaf, num, plural, resLabel, span, stem, when } from '../lib/fmt.js';
+import { ago, bytes, clock, collator, extOf, leaf, num, plural, resLabel, span, stem, when } from '../lib/fmt.js';
 import { href, navigate, replace } from '../lib/router.js';
 import { loadLibraries, loadConnections, on, pokeWatcher, running, state, takeLibraryAction } from '../lib/state.js';
 import { store } from '../lib/store.js';
@@ -85,18 +85,16 @@ export async function mount(root, parts) {
   // On this computer a playlist is saved as a file of real links (paths, links into the bucket) that any player opens
   // without medialib; a browser elsewhere copies the playlist's address on this server instead.
   const plQuery = () => `lib=${encodeURIComponent(S.lib)}&dir=${encodeURIComponent(S.scope)}` + (S.hidden.size ? '&hide=' + encodeURIComponent([...S.hidden].join(',')) : '');
-  const copyPl = onThisComputer()
-    ? h('button.btn', { type: 'button', title: 'Save everything shown as a playlist file (.m3u8)', onclick: () => savePlaylist() }, icon('download', 'sm'), 'Save playlist…')
-    : h('button.btn', { type: 'button', onclick: () => copy(`${location.origin}/api/playlist.m3u8?${plQuery()}`, 'Playlist URL') }, icon('link', 'sm'), 'Copy playlist URL');
+  const moreBtn = h('button.btn.icon-only', { type: 'button', 'aria-label': 'More', title: 'Playlist, scan, library settings', 'aria-haspopup': 'menu', onclick: e => openMore(e.currentTarget) }, icon('more'));
   const groups = h('div#groups');
   const empty = h('p.empty', { hidden: true }, 'Nothing here matches.');
   const main = h('section.lib-main', banner, warnings,
-    h('div.scopebar', h('div.scope-text', crumbs, stats), h('div.actions', playAll, shuffleAll, copyPl)), groups, empty);
+    h('div.scopebar', h('div.scope-text', crumbs, stats), h('div.actions', playAll, shuffleAll, moreBtn)), groups, empty);
 
   const bar = h('header.lib-bar', navToggle, libBtn, h('div.search', icon('search', 'sm'), qInput), h('div.bar-spacer'), sortSel, typesBtn, optBtn, ring);
   const view = h('div.lib-view', bar, h('div.lib-body', nav, main), scrim);
   root.append(view);
-  if (store.get('treeClosed', '0') === '1') { view.classList.add('tree-closed'); navToggle.setAttribute('aria-expanded', 'false'); }
+  if (store.get('treeClosed', '1') === '1') { view.classList.add('tree-closed'); navToggle.setAttribute('aria-expanded', 'false'); }
   const noLibs = h('div.page', { hidden: true }, h('div.page-inner', h('div.card-box.empty-state', icon('library'), h('h3', 'Add your first library'),
     h('p', 'A library is a folder on a disk or NAS share, or a folder in an object-store bucket. medialib indexes it and shows keyframe covers you can click to play.'),
     h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', marginTop: '8px' } },
@@ -150,7 +148,7 @@ export async function mount(root, parts) {
     const frames = it.frames || 0;
     let cur = Math.min(it.cover ?? 0, Math.max(0, frames - 1));
     const big = frames ? h('img', { alt: '', src: thumb(it, cur) })
-      : h('div.det-ph', icon(it.kind === 'audio' ? 'music' : 'film', 'lg'), h('span', it.indexed === false && !it.error ? 'Not indexed yet' : 'No preview'));
+      : h('div.det-ph', icon(it.kind === 'audio' ? 'music' : 'film', 'lg'), h('span', it.indexed === false && !it.error ? 'No cover yet' : 'No preview'));
     const strip = frames > 1 ? h('div.det-strip', Array.from({ length: frames }, (_, i) =>
       h('button', { type: 'button', 'aria-label': `Keyframe ${i + 1} of ${frames}`, 'aria-pressed': String(i === cur), onclick: () => pick(i) },
         h('img', { alt: '', loading: 'lazy', src: thumb(it, i) })))) : null;
@@ -161,7 +159,7 @@ export async function mount(root, parts) {
     };
     const row = (k, v) => (v == null || v === '' ? null : [h('dt', k), h('dd', v)]);
     const res = resLabel(it.width, it.height);
-    const status = it.error ? 'Failed: ' + it.error : it.indexed === false ? 'Not indexed yet'
+    const status = it.error ? 'Failed: ' + it.error : it.indexed === false ? 'No cover yet'
       : plural(frames, 'keyframe') + (it.note ? ' (read with ffmpeg)' : '');
     const meta = h('dl.det-meta',
       row('Folder', h('button.linkish', { type: 'button', title: 'Show this folder', onclick: () => { m.close(); go(it.dir); } }, it.dir || 'Top level')),
@@ -272,7 +270,7 @@ export async function mount(root, parts) {
       cover.append(h('img', { alt: '', loading: 'lazy', decoding: 'async', src: thumb(it, it.cover ?? 0) }));
     } else {
       cover.append(h('div.ph', icon(it.kind === 'audio' ? 'music' : 'film', 'lg'),
-        h('span', it.kind === 'audio' ? (it.codec || 'audio').toUpperCase() : it.indexed === false && !it.error ? 'Not indexed yet' : 'No preview')));
+        h('span', it.kind === 'audio' ? (it.codec || 'audio').toUpperCase() : it.indexed === false && !it.error ? 'No cover yet' : 'No preview')));
     }
     const res = resLabel(it.width, it.height);
     if (res) cover.append(h('span.badge.tl', res));
@@ -280,7 +278,7 @@ export async function mount(root, parts) {
     if (it.frames > 1) cover.append(h('span.ticks', Array.from({ length: it.frames }, () => h('i'))));
     const hint = h('span.playhint'); hint.innerHTML = PLAY_HINT; cover.append(hint);
     const title = h('div.title', { title: it.name + '\nClick for details' }, stem(it.name));
-    const sub = h('div.sub', [entry.sub, bytes(it.size)].filter(Boolean).join(' · '));
+    const sub = h('div.sub', { title: `${bytes(it.size)} · ${when(it.mtime)}` }, entry.sub || `Added ${ago(it.mtime)}`);
     const cp = h('button.copy', { type: 'button', title: linkLabel(), 'aria-label': `${linkLabel()} of ${it.name}` }, icon('copy', 'sm'));
     art.append(cover, h('div.meta', title, cp, sub));
     return art;
@@ -428,7 +426,20 @@ export async function mount(root, parts) {
     const frag = document.createDocumentFragment();
     S.visibleIds = [];
     const how = effectiveSort();
-    for (const g of [...grp.values()].sort(groupSort[how])) {
+    // Folders as cards (the default): each subfolder is one tile, its files a click away; the files right here
+    // follow. While searching, or with "All videos" chosen, every match shows, grouped by folder.
+    if (store.get('libDisplay', 'folders') === 'folders' && !S.q.trim()) {
+      const folders = [...grp.values()].filter(g => g.key).sort(groupSort[how]);
+      const here = grp.get('');
+      for (const g of folders) S.visibleIds.push(...g.entries.sort(itemSort[how]).map(e => e.it.id));
+      if (folders.length) frag.append(h('section.group.folders', h('div.fgrid', folders.map(g => folderCard(s, g)))));
+      if (here) {
+        here.entries.sort(itemSort[how]);
+        S.visibleIds.push(...here.entries.map(e => e.it.id));
+        frag.append(h('section.group', folders.length ? h('header.ghead', h('div.gpath', h('span.gtitle', 'Files in this folder')),
+          h('span.gstats', `${here.entries.length} · ${span(here.dur)}`)) : null, makeGrid(here.entries)));
+      }
+    } else for (const g of [...grp.values()].sort(groupSort[how])) {
       g.entries.sort(itemSort[how]);
       const ids = g.entries.map(e => e.it.id);
       S.visibleIds.push(...ids);
@@ -445,15 +456,47 @@ export async function mount(root, parts) {
     empty.hidden = list.length > 0 || !S.items.length;
 
     const ps = s ? s.split('/') : [];
-    fill(crumbs, [['All media', ''], ...ps.map((p, i) => [p, ps.slice(0, i + 1).join('/')])].map(([name, path], i, arr) => {
+    fill(crumbs, [[S.info?.name || 'All media', ''], ...ps.map((p, i) => [p, ps.slice(0, i + 1).join('/')])].map(([name, path], i, arr) => {
       const b = h('button', { type: 'button' }, name);
       if (i < arr.length - 1) b.addEventListener('click', () => go(path)); else b.setAttribute('aria-current', 'page');
       return h('li', b);
     }));
     const total = list.reduce((a, it) => a + (it.duration || 0), 0), size = list.reduce((a, it) => a + it.size, 0);
     const filtered = S.hidden.size ? S.items.filter(it => inScope(it, s) && S.hidden.has(it.ext)).length : 0;
-    stats.textContent = `${num(list.length)} items · ${span(total)} · ${bytes(size)}` + (S.q.trim() ? ` · matching “${S.q.trim()}”` : '') + (filtered ? ` · ${num(filtered)} hidden by type` : '');
+    stats.textContent = `${plural(list.length, 'video')} · ${span(total)} · ${bytes(size)}` + (S.q.trim() ? ` · matching “${S.q.trim()}”` : '') + (filtered ? ` · ${num(filtered)} hidden by type` : '');
     document.title = (s ? leaf(s) + ' · ' : '') + (S.info ? S.info.name + ' · ' : '') + 'Media Library';
+  }
+
+  // A subfolder as a tile: the covers of its newest videos, its name, how much is in it.
+  function folderCard(s, g) {
+    const path = s ? s + '/' + g.key : g.key;
+    const covers = [];
+    for (const e of g.entries) {
+      if (!e.it.frames) continue;
+      let pos = covers.length;
+      while (pos > 0 && covers[pos - 1].mtime < e.it.mtime) pos--;
+      if (pos < 4) { covers.splice(pos, 0, e.it); covers.length = Math.min(covers.length, 4); }
+    }
+    const ids = () => g.entries.map(e => e.it.id);
+    return h('button.fcard', { type: 'button', title: path, onclick: () => go(path),
+      oncontextmenu: e => contextMenu(e, [
+        { label: 'Open', icon: 'folder', onClick: () => go(path) },
+        { label: 'Play all', icon: 'play', onClick: () => play(ids()) },
+        { label: 'Shuffle', icon: 'shuffle', onClick: () => play(shuffled(ids())) },
+      ]) },
+    h('div.tile-mosaic', { class: `n${covers.length}` }, covers.length ? covers.map(it => h('img', { src: thumb(it, it.cover ?? 0), alt: '', loading: 'lazy', decoding: 'async' }))
+      : h('div.ph', icon('folder', 'lg'))),
+    h('div.tile-meta', h('span.tile-name', icon('folder', 'sm'), g.key), h('span.tile-status', `${plural(g.entries.length, 'video')}${g.dur ? ' · ' + span(g.dur) : ''}`)));
+  }
+  function openMore(anchor) {
+    showMenu({ anchor, align: 'right', items: [
+      onThisComputer()
+        ? { label: 'Save as playlist…', icon: 'download', onClick: () => savePlaylist() }
+        : { label: 'Copy playlist link', icon: 'link', onClick: () => copy(`${location.origin}/api/playlist.m3u8?${plQuery()}`, 'Playlist link') },
+      { sep: true },
+      { label: 'Scan for new videos', icon: 'refresh', onClick: () => startIndex(S.lib) },
+      { label: 'Library settings…', icon: 'sliders', onClick: () => manageLibraries() },
+    ] });
   }
 
   // Group titles: the full folder path, every folder from the top of the library down to the group. When it does
@@ -565,11 +608,11 @@ export async function mount(root, parts) {
       const job = state.jobs[l.id];
       const meta = h('div.lib-meta');
       if (running(job)) {
-        meta.append(job.state === 'waiting' ? 'Waiting for another indexer to finish…' : job.state === 'listing' ? 'Scanning…' : `Indexing ${num(job.done)} of ${num(job.total)}`,
+        meta.append(job.state === 'waiting' ? 'Waiting for another scan to finish…' : job.state === 'listing' ? 'Looking for videos…' : `Making covers: ${num(job.done)} of ${num(job.total)}`,
           h('div.meter', h('i', { style: { width: (job.state === 'indexing' && job.total ? job.done / job.total * 100 : 0) + '%' } })));
       } else {
-        meta.textContent = job && job.state === 'error' ? 'Indexing failed: ' + job.line : l.type === 'local' && !l.reachable ? 'Folder not reachable'
-          : l.type === 's3' && !l.reachable ? 'Its connection was removed' : l.updated ? `${num(l.items)} items · indexed ${when(l.updated)}` : 'Not indexed yet';
+        meta.textContent = job && job.state === 'error' ? 'Scan failed: ' + job.line : l.type === 'local' && !l.reachable ? 'Folder not found'
+          : l.type === 's3' && !l.reachable ? 'Its connection was removed' : l.updated ? `${plural(l.items, 'video')} · scanned ${ago(l.updated)}` : 'Not scanned yet';
       }
       const busy = running(job);
       return h('li.lib', h('div.lib-main',
@@ -580,7 +623,7 @@ export async function mount(root, parts) {
           h('button.btn.small', { type: 'button', disabled: busy, onclick: () => startIndex(l.id) }, l.updated ? 'Update index' : 'Index'),
           h('button.icon-btn.small', { type: 'button', 'aria-label': 'More', onclick: e => showMenu({ anchor: e.currentTarget, align: 'right', items: [
             { label: 'Edit…', icon: 'edit', disabled: busy, onClick: () => editLibrary(l) },
-            { label: 'Re-index everything', icon: 'refresh', disabled: busy, onClick: () => startIndex(l.id, true) },
+            { label: 'Remake every cover', icon: 'refresh', disabled: busy, onClick: () => startIndex(l.id, true) },
             l.convertible ? { label: 'Read directly over S3 (no rclone)', icon: 'cloud', disabled: busy, onClick: () => convert(l) } : null,
             { sep: true },
             { label: 'Remove', icon: 'trash', danger: true, disabled: busy || state.libs.length < 2, onClick: () => removeLibrary(l) },
@@ -624,7 +667,7 @@ export async function mount(root, parts) {
           await loadLibraries();
           api.close(true);
           if (l.id === S.lib) { paintSwitch(); loadLibrary(); }
-          if (j.moved) { toast('Location changed. Indexing…', { kind: 'ok' }); pokeWatcher(); }
+          if (j.moved) { toast('Location changed. Scanning…', { kind: 'ok' }); pokeWatcher(); }
         } catch (e) { err.textContent = e.message; err.hidden = false; }
         return false;
       } }],
@@ -663,7 +706,7 @@ export async function mount(root, parts) {
     let loc = { conn: '', bucket: '', prefix: '' };
     const s3Name = h('input.input', { placeholder: 'Name (optional)', autocomplete: 'off' });
     const picker = state.connections.length ? locationPicker({ onChange: v => { loc = v; } }) : null;
-    const s3Pane = h('div', picker ? [h('p.hint', 'Pick a bucket, then the folder that holds your media. Indexing reads it straight through the S3 API.'), picker.el,
+    const s3Pane = h('div', picker ? [h('p.hint', 'Pick a bucket, then the folder that holds your videos. medialib reads it straight through the S3 API.'), picker.el,
       h('div.field', { style: { marginTop: '14px' } }, h('label', 'Name'), s3Name)]
       : h('div.empty-state', icon('plug'), h('h3', 'No connection yet'), h('p', 'Connect to RustFS, MinIO, S3 or another store first.'),
         h('button.btn.primary', { type: 'button', onclick: async () => { const c = await editConnection(); if (c) { m.close(); addLibrary(); } } }, icon('plus', 'sm'), 'Add connection')));
@@ -679,7 +722,7 @@ export async function mount(root, parts) {
     setMode(mode);
     const m = modal({
       title: 'Add a library', body: h('div', h('div', { style: { marginBottom: '14px' } }, tabs), err, panes),
-      actions: [{ label: 'Cancel', value: false }, { label: 'Add and index', primary: true, keepOpen: true, onClick: async api => {
+      actions: [{ label: 'Cancel', value: false }, { label: 'Add and scan', primary: true, keepOpen: true, onClick: async api => {
         err.hidden = true;
         try {
           const lib = mode === 'local' ? await post('/api/libraries', { path: pathIn.value, name: nameIn.value })
@@ -701,16 +744,23 @@ export async function mount(root, parts) {
     const pending = S.items.filter(it => it.kind === 'video' && !it.frames && !it.error).length;
     let msg = '', act = '', kind = '';
     paintRing();
+    let detail = '', edit = false;
     if (running(job)) {
       if (job.state === 'waiting') msg = job.line;  // progress itself lives in the ring
-    } else if (job && job.state === 'error') { msg = 'Indexing failed: ' + job.line; act = 'Retry'; kind = 'error'; }
-    else if (info.type === 'local' && !info.reachable) { msg = `Folder not reachable: ${info.location}. Covers are shown from the last index; playback needs the folder back.`; kind = 'warn'; }
-    else if (info.type === 's3' && !info.reachable) { msg = 'The connection this library used was removed. Covers are shown from the last index.'; kind = 'warn'; }
-    else if (!S.items.length) { msg = info.updated ? 'No media files were found in this library.' : 'This library has not been indexed yet.'; act = info.updated ? 'Scan again' : 'Index now'; }
-    else if (pending) { msg = `${num(pending)} of ${num(S.items.length)} files have no preview yet.`; act = 'Index now'; }
+      else if (!S.items.length) { msg = 'Looking for videos…'; detail = 'Covers appear here as they are made.'; }
+    } else if (job && job.state === 'error') { msg = 'The last scan did not finish.'; detail = job.line; act = 'Try again'; kind = 'error'; }
+    else if (info.type === 'local' && !info.reachable) {
+      msg = 'Can’t find this folder.'; detail = `It may be on a disk that is not plugged in, or it was moved: ${info.location}`; kind = 'warn'; edit = true;
+    } else if (info.type === 's3' && !info.reachable) { msg = 'The connection this library used was removed.'; detail = 'Covers from the last scan are still shown.'; kind = 'warn'; edit = true; }
+    else if (!S.items.length) {
+      msg = info.updated ? 'No videos were found here.' : 'This library hasn’t been scanned yet.';
+      detail = info.updated ? 'Add videos to the folder, then scan again.' : 'A scan finds the videos and makes a cover for each.'; act = info.updated ? 'Scan again' : 'Scan for videos';
+    } else if (pending) { msg = `${plural(pending, 'video')} without a cover yet.`; act = 'Make covers'; }
     banner.hidden = !msg;
     banner.className = 'banner lib-banner ' + kind;
-    fill(banner, h('div.grow', msg), act ? h('button.btn', { type: 'button', onclick: () => startIndex(S.lib) }, act) : null);
+    fill(banner, h('div.grow', h('strong', msg), detail ? h('div.banner-detail', detail) : null),
+      edit ? h('button.btn', { type: 'button', onclick: () => manageLibraries() }, 'Edit library…') : null,
+      act ? h('button.btn', { type: 'button', class: kind ? '' : 'primary', onclick: () => startIndex(S.lib) }, act) : null);
     fill(warnings, (info.warnings || []).map(w => h('li', w)));
     warnings.hidden = !warnings.children.length;
   }
@@ -725,8 +775,8 @@ export async function mount(root, parts) {
     ring.classList.toggle('busy', busy);
     $('.ring-bar', ring).setAttribute('stroke-dasharray', `${busy ? 25 : pct} 100`);
     ringText.textContent = busy ? '' : pct + '%';
-    const text = job.state === 'waiting' ? `Waiting to index ${name}` : job.state === 'listing' ? `Scanning ${name}`
-      : `Indexing ${name}: ${pct}%, ${num(job.done)} of ${num(job.total)} files` + (job.errors ? `, ${num(job.errors)} errors` : '');
+    const text = job.state === 'waiting' ? `Waiting to scan ${name}` : job.state === 'listing' ? `Looking for videos in ${name}`
+      : `Making covers for ${name}: ${pct}%, ${num(job.done)} of ${num(job.total)}` + (job.errors ? `, ${num(job.errors)} failed` : '');
     ring.title = text;
     ring.setAttribute('aria-label', text + '. Open libraries');
   }
@@ -760,7 +810,7 @@ export async function mount(root, parts) {
     }
     if (anyFinished) loadLibraries().catch(() => {});  // a finished run changes a library's item count and indexed time
     paintBanner();
-    if (finished && now.state === 'done') toast('Indexing finished', { kind: 'ok' });
+    if (finished && now.state === 'done') toast('Scan finished: every cover is up to date', { kind: 'ok' });
   }));
 
   // ---------------------------------------------------------------- type filter
@@ -800,11 +850,12 @@ export async function mount(root, parts) {
     const playerSel = h('select', { 'aria-label': 'Play with', onchange: () => { S.player = playerSel.value; store.set('player', S.player); } },
       state.players.map(p => h('option', { value: p.id }, p.name)));
     playerSel.value = S.player || '';
+    const showSeg = h('div.seg', [['folders', 'Folders'], ['all', 'All videos']].map(([v, t]) => h('button', { type: 'button', 'aria-pressed': String(store.get('libDisplay', 'folders') === v),
+      onclick: () => { store.set('libDisplay', v); for (const b of showSeg.children) b.setAttribute('aria-pressed', String(b.textContent === t)); render(); } }, t)));
     showMenu({ anchor, align: 'right', items: [
+      { head: 'Show' }, { node: showSeg }, { sep: true },
       { head: 'Play with' }, { node: playerSel }, { sep: true },
       { head: 'Cover size' }, { node: sizeSeg },
-      { sep: true },
-      { label: 'Re-scan this library', icon: 'refresh', onClick: () => startIndex(S.lib) },
     ] });
   }
   function setSize(size) {
