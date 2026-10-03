@@ -73,11 +73,13 @@ jobs:
       - if: github.event_name == 'push'
         run: git fetch --force origin "refs/tags/$VERSION:refs/tags/$VERSION"
       - uses: actions/download-artifact@v4
-        with: { path: dist, merge-multiple: true }
-      - name: Checksums and notes
+        with: { path: build, merge-multiple: true }
+      # the builds' own outputs become medialib-<version>-<os>-<arch>[-<kind>] archives (scripts/package-release.sh)
+      - name: Package, checksums and notes
         run: |
+          sh scripts/package-release.sh "$VERSION" build dist
           (cd dist && sha256sum -- * > ../SHA256SUMS) && mv SHA256SUMS dist/
-          sh scripts/release-notes.sh "$VERSION" > release-notes.md
+          sh scripts/release-notes.sh "$VERSION" dist > release-notes.md
           { echo "# $VERSION"; echo; cat release-notes.md; echo; echo '```'; cat dist/SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           ls -l dist
       - if: github.event_name == 'push'

@@ -36,7 +36,7 @@ It runs as a **desktop app** on your own machine, or as a plain **web server** y
 
 ## Three ways to run it
 
-One program, one UI. Build it (`make server`, `make desktop`), or take a binary from the [releases page](https://github.com/demogest/medialib/releases), each with its notes and `SHA256SUMS`.
+One program, one UI. Build it (`make server`, `make desktop`), or take one from the [releases page](https://github.com/demogest/medialib/releases): `medialib-<version>-<os>-<arch>` is the desktop app (`-setup.exe` and `-portable.zip` on Windows), `…-server` the server and command line, each archive holding one program named `medialib`. Every release lists its files and has `SHA256SUMS`.
 
 ### Desktop app
 
@@ -46,7 +46,7 @@ medialib desktop              # or double-click medialib-desktop
 
 The UI in its own window, talking to a server that lives and dies with the window. Settings and indexes live in your user config folder (`%AppData%\medialib`, `~/.config/medialib`).
 
-**Windows** gets a proper application: the system's WebView2 runtime driven from pure Go (no C compiler, no extra DLL), one window per user (starting it again raises the running one), the window comes back where you left it, the title bar follows the page's light or dark theme, links to other sites open in your browser, and there is an icon, DPI-aware manifest and version info. Without WebView2 it falls back to an Edge or Chrome app window. Take `medialib-setup-windows-*.exe` from the releases (per-user install, Start menu entry, optional desktop shortcut, optional ffmpeg via winget) or the portable `.zip`. To build them yourself:
+**Windows** gets a proper application: the system's WebView2 runtime driven from pure Go (no C compiler, no extra DLL), one window per user (starting it again raises the running one), the window comes back where you left it, the title bar follows the page's light or dark theme, links to other sites open in your browser, and there is an icon, DPI-aware manifest and version info. Without WebView2 it falls back to an Edge or Chrome app window. Take `medialib-<version>-windows-x64-setup.exe` from the releases (per-user install, Start menu entry, optional desktop shortcut, optional ffmpeg via winget) or the portable `medialib-<version>-windows-x64-portable.zip`. To build them yourself:
 
 ```powershell
 powershell -File scripts\package-windows.ps1            # needs Go; Inno Setup 6 for the installer
@@ -166,7 +166,7 @@ The signing tests use the examples published in the AWS documentation. The unit 
 
 ## Releasing
 
-Push a tag: `git tag -a v3.2.0 -m "medialib 3.2.0" && git push origin v3.2.0`. The release workflow builds every download (the version goes into the program, the Windows file properties and the installer), and only once all of them have built publishes the release with `SHA256SUMS` and generated notes: every change since the previous tag, from the commit messages (a squash-merged pull request brings its list of changes), led by the tag's own message if it says more than a title. `scripts/release-notes.sh v3.2.0` shows them beforehand.
+Push a tag: `git tag -a v3.2.0 -m "medialib 3.2.0" && git push origin v3.2.0`. The release workflow builds every download (the version goes into the program, the Windows file properties and the installer), packs them under their release names (`scripts/package-release.sh`), and only once all of them have built publishes the release with `SHA256SUMS` and generated notes: every change since the previous tag, from the commit messages (a squash-merged pull request brings its list of changes), led by the tag's own message if it says more than a title. `scripts/release-notes.sh v3.2.0` shows them beforehand.
 
 - **Actions → release → Run workflow** is a dry run: it builds everything and writes the notes and checksums (shown on the run's page and kept as artifacts) but publishes nothing.
 - **Actions → release-notes → Run workflow** writes the notes into a release that already exists, leaving its files alone.
