@@ -32,8 +32,17 @@ export async function loadLibraries() {
   emit('libraries');
   return j;
 }
+// Connections and tasks are only for this computer, or for a browser that signed in. Anyone else browsing the
+// libraries is answered 403 there: for them that means "none", not an error.
+const denied = e => e && e.status === 403;
+
 export async function loadConnections() {
-  state.connections = (await get('/api/connections')).connections;
+  try {
+    state.connections = (await get('/api/connections')).connections;
+  } catch (e) {
+    if (!denied(e)) throw e;
+    state.connections = [];
+  }
   emit('connections');
   return state.connections;
 }
@@ -45,22 +54,27 @@ export async function loadPlayers() {
 }
 
 // ---------------------------------------------------------------- watcher
-let timer = null, visible = true;
+let timer = null, visible = true, tasksDenied = false;
 const busy = () => state.tasks.some(t => t.state === 'running') || Object.values(state.jobs).some(running);
 
 async function tick() {
   clearTimeout(timer);
-  try {
-    const [jobs, tasks] = await Promise.all([get('/api/index'), get('/api/tasks')]);
-    const before = state.tasks;
-    state.jobs = jobs.jobs;
-    state.tasks = tasks.tasks;
-    for (const t of state.tasks) {
-      const prev = before.find(b => b.id === t.id);
-      if (prev && prev.state === 'running' && t.state !== 'running') emit('task-finished', t);
+  // Indexing progress and tasks are asked for separately: a browser that may not see tasks still follows indexing.
+  const [jobs, tasks] = await Promise.allSettled([get('/api/index'), tasksDenied ? null : get('/api/tasks')]);
+  if (tasks.status === 'rejected' && denied(tasks.reason)) tasksDenied = true;
+  const gotJobs = jobs.status === 'fulfilled', gotTasks = tasks.status === 'fulfilled' && !!tasks.value;
+  if (gotJobs || gotTasks) {
+    if (gotJobs) state.jobs = jobs.value.jobs;
+    if (gotTasks) {
+      const before = state.tasks;
+      state.tasks = tasks.value.tasks;
+      for (const t of state.tasks) {
+        const prev = before.find(b => b.id === t.id);
+        if (prev && prev.state === 'running' && t.state !== 'running') emit('task-finished', t);
+      }
     }
     emit('activity');
-  } catch { /* the server may be restarting: try again */ }
+  } /* else the server may be restarting: try again */
   timer = setTimeout(tick, !visible ? 15000 : busy() ? 1200 : 5000);
 }
 export function startWatcher() {
