@@ -3,12 +3,14 @@ package media
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 )
 
 // The index lives in library.json.gz: gzip-compressed JSON in a compact form (see encodeData). Indexes written by
@@ -93,7 +95,7 @@ func encodeData(d Data) ([]byte, error) {
 		return nil, err
 	}
 	var buf bytes.Buffer
-	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.DefaultCompression) // level 9 takes 1.7x as long for 0.5% less
 	if _, err := zw.Write(text); err != nil {
 		return nil, err
 	}
@@ -110,17 +112,29 @@ func decodeData(raw []byte) (*Data, error) {
 		if err != nil {
 			return nil, err
 		}
-		if raw, err = io.ReadAll(zr); err != nil {
+		// The last four bytes of a gzip file are its size unpacked (modulo 4 GiB): read it in one go.
+		size := 0
+		if n := len(raw); n >= 4 {
+			size = int(binary.LittleEndian.Uint32(raw[n-4:]))
+		}
+		var buf bytes.Buffer
+		buf.Grow(min(size, 64*len(raw)) + bytes.MinRead) // a damaged trailer must not ask for gigabytes
+		if _, err := buf.ReadFrom(zr); err != nil {
 			return nil, err
 		}
+		raw = buf.Bytes()
 	}
-	var probe struct {
-		Format int `json:"format"`
-	}
-	_ = json.Unmarshal(raw, &probe)
-	if probe.Format == 0 { // the plain library.json of version 1
+	// Every item of the compact form starts with its key, and `{"k":` cannot occur inside a JSON string, so this counts
+	// the items: the list is made at its full size at once instead of growing (and being copied) step by step.
+	dd := diskData{Items: make([]diskItem, 0, bytes.Count(raw, []byte(`{"k":`)))}
+	err := json.Unmarshal(raw, &dd)
+	if err != nil || dd.Format == 0 {
+		// the plain library.json of version 1 (it has no "format")
 		var d Data
-		if err := json.Unmarshal(raw, &d); err != nil {
+		if lerr := json.Unmarshal(raw, &d); lerr != nil {
+			if err == nil {
+				err = lerr
+			}
 			return nil, err
 		}
 		if d.Items == nil {
@@ -134,32 +148,50 @@ func decodeData(raw []byte) (*Data, error) {
 		}
 		return &d, nil
 	}
-	var dd diskData
-	if err := json.Unmarshal(raw, &dd); err != nil {
-		return nil, err
-	}
 	d := &Data{Library: dd.Library, Name: dd.Name, Type: dd.Type, Location: dd.Location, Updated: dd.Updated, Warnings: dd.Warnings,
-		Items: make([]Item, 0, len(dd.Items))}
+		Items: make([]Item, len(dd.Items))}
 	for _, x := range dd.Items {
 		if x.Dir < 0 || x.Dir >= len(dd.Dirs) {
 			return nil, fmt.Errorf("item %q refers to folder %d of %d", x.Key, x.Dir, len(dd.Dirs))
 		}
-		name, kind := x.Name, x.Kind
-		if name == "" {
-			name = baseName(x.Key)
-		}
-		if kind == "" {
-			kind = "video"
-		}
-		it := newItem(x.Key, name, dd.Dirs[x.Dir], kind, x.Size, x.MTime)
-		it.NamePinyin, it.NameInitials, it.DirPinyin, it.DirInitials = x.NameP, x.NameI, x.DirP, x.DirI
-		it.fillPinyin() // an index from before pinyin was stored
-		it.Duration, it.Width, it.Height, it.Codec, it.FPS, it.Audio = x.Duration, x.Width, x.Height, x.Codec, x.FPS, x.Audio
-		it.Frames, it.Cover, it.Indexed, it.Note, it.Error = x.Frames, x.Cover, x.Indexed, x.Note, x.Error
-		d.Items = append(d.Items, it)
 	}
+	// Ids and versions are hashes and are worked out again for every item: spread that over the processors.
+	inParallel(len(dd.Items), func(lo, hi int) {
+		for i := lo; i < hi; i++ {
+			x := &dd.Items[i]
+			name, kind := x.Name, x.Kind
+			if name == "" {
+				name = baseName(x.Key)
+			}
+			if kind == "" {
+				kind = "video"
+			}
+			it := newItem(x.Key, name, dd.Dirs[x.Dir], kind, x.Size, x.MTime)
+			it.NamePinyin, it.NameInitials, it.DirPinyin, it.DirInitials = x.NameP, x.NameI, x.DirP, x.DirI
+			it.fillPinyin() // an index from before pinyin was stored
+			it.Duration, it.Width, it.Height, it.Codec, it.FPS, it.Audio = x.Duration, x.Width, x.Height, x.Codec, x.FPS, x.Audio
+			it.Frames, it.Cover, it.Indexed, it.Note, it.Error = x.Frames, x.Cover, x.Indexed, x.Note, x.Error
+			d.Items[i] = it
+		}
+	})
 	if d.Warnings == nil {
 		d.Warnings = []string{}
 	}
 	return d, nil
+}
+
+// inParallel calls fn over [0, n) in a few contiguous ranges at once (one range when n is small).
+func inParallel(n int, fn func(lo, hi int)) {
+	parts := min(runtime.GOMAXPROCS(0), max(1, n/2000))
+	if parts <= 1 {
+		fn(0, n)
+		return
+	}
+	var wg sync.WaitGroup
+	for p := 0; p < parts; p++ {
+		lo, hi := n*p/parts, n*(p+1)/parts
+		wg.Add(1)
+		go func() { defer wg.Done(); fn(lo, hi) }()
+	}
+	wg.Wait()
 }
