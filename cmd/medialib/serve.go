@@ -89,7 +89,7 @@ func cmdServe(cfg *config.Config, args []string, mode string) error {
 	}
 
 	fmt.Printf("Media library on %s\n", url)
-	fmt.Printf("  libraries:   %s\n", names(cfg.Libraries(), func(l config.Library) string { return l.Name }))
+	fmt.Printf("  libraries:   %s\n", orNone(names(cfg.Libraries(), func(l config.Library) string { return l.Name })))
 	fmt.Printf("  connections: %s\n", orNone(names(cfg.Connections(), func(c config.Connection) string { return c.Name })))
 	var ps []string
 	for _, p := range app.Players() {

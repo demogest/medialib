@@ -119,15 +119,12 @@ type Config struct {
 	home  string
 }
 
+// defaultData is a config with nothing set up: the first run asks which folders to add (see Suggestions) rather
+// than starting on a library of a folder that may not exist.
 func defaultData() data {
-	videos := "~/Videos"
-	if runtime.GOOS == "windows" {
-		videos = `%USERPROFILE%\Videos`
-	}
 	return data{
 		Rclone: "rclone", FFmpeg: "ffmpeg", FFprobe: "ffprobe", Port: 8766, DefaultPlayer: "mpv",
-		Players: []Player{}, Active: "videos", Connections: []Connection{},
-		Libraries: []Library{{ID: "videos", Name: "Videos", Type: "local", Path: videos}},
+		Players: []Player{}, Connections: []Connection{}, Libraries: []Library{},
 	}
 }
 
@@ -193,9 +190,6 @@ func Load(home string) (*Config, error) {
 			legacy = true
 		}
 	}
-	if len(c.d.Libraries) == 0 {
-		c.d.Libraries = defaultData().Libraries
-	}
 	if legacy || !hasLibs {
 		if err := c.save(); err != nil {
 			return nil, err
@@ -207,6 +201,9 @@ func Load(home string) (*Config, error) {
 
 // adoptOldCache moves the cache layout from before libraries existed (cache/library.json + cache/thumbs).
 func (c *Config) adoptOldCache() {
+	if len(c.d.Libraries) == 0 {
+		return
+	}
 	cache := c.CacheDir()
 	first := c.LibDir(c.d.Libraries[0])
 	old := filepath.Join(cache, "library.json")
@@ -255,6 +252,9 @@ func (c *Config) fromMap(m map[string]json.RawMessage) error {
 	}
 	if d.Connections == nil {
 		d.Connections = []Connection{}
+	}
+	if d.Libraries == nil {
+		d.Libraries = []Library{}
 	}
 	for i := range d.Libraries {
 		if d.Libraries[i].Type == "" {
@@ -377,6 +377,9 @@ func (c *Config) Active() string {
 func (c *Config) activeLocked() string {
 	if l, ok := c.findLocked(c.d.Active); ok {
 		return l.ID
+	}
+	if len(c.d.Libraries) == 0 {
+		return ""
 	}
 	return c.d.Libraries[0].ID
 }
@@ -610,9 +613,6 @@ func (c *Config) RemoveLibrary(id string) (Library, error) {
 	if !ok {
 		return Library{}, Errorf("unknown library")
 	}
-	if len(c.d.Libraries) == 1 {
-		return Library{}, Errorf("The last library can't be removed.")
-	}
 	kept := c.d.Libraries[:0:0]
 	for _, l := range c.d.Libraries {
 		if l.ID != id {
@@ -621,7 +621,10 @@ func (c *Config) RemoveLibrary(id string) (Library, error) {
 	}
 	c.d.Libraries = kept
 	if c.d.Active == id {
-		c.d.Active = kept[0].ID
+		c.d.Active = ""
+		if len(kept) > 0 {
+			c.d.Active = kept[0].ID
+		}
 	}
 	return lib, c.save()
 }

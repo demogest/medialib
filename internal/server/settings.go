@@ -58,6 +58,9 @@ func (a *App) settingsRoutes(def func(string, int, routeFn)) {
 	})
 	def("POST /api/players/detect", machine, func(c *Ctx) (any, error) { a.DetectPlayers(); return a.playerList(), nil })
 
+	def("GET /api/home", open, a.home)
+	def("DELETE /api/history", private, func(c *Ctx) (any, error) { a.saveHistory(nil); return map[string]any{"ok": true}, nil })
+	def("GET /api/suggestions", private, a.suggestions)
 	def("GET /api/link", open, a.link)
 	def("POST /api/playlist/save", machine, a.savePlaylist)
 

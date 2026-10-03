@@ -584,6 +584,7 @@ func (a *App) play(c *Ctx) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	a.recordPlay(lib, recs[0])
 	return map[string]any{"ok": true, "player": name, "count": len(recs)}, nil
 }
 

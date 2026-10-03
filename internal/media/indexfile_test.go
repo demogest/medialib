@@ -128,7 +128,7 @@ func TestLegacyIndexIsReadAndReplaced(t *testing.T) {
 // A store in the process that saved the index takes what was saved as it is; one in another process reads the file.
 func TestStoreTakesAnIndexSavedInThisProcess(t *testing.T) {
 	cfg, _ := config.Load(t.TempDir())
-	lib := cfg.Libraries()[0]
+	lib := config.Library{ID: "videos", Name: "Videos", Type: "local", Path: t.TempDir()}
 	store := NewStore(cfg, lib)
 	recs := map[string]Item{}
 	for _, it := range sampleData().Items {

@@ -53,6 +53,7 @@ type App struct {
 	launched map[string]time.Time // recent player launches, see Launch
 	links    map[linkKey]link
 	jobs     map[string]*media.Job
+	hist     history // what was played, for the Home page
 
 	autoMu     sync.Mutex
 	autoParent context.Context // the server's lifetime, for the automatic indexing loop
@@ -128,6 +129,9 @@ func (a *App) Describe(lib config.Library) (map[string]any, *media.Snapshot) {
 		}
 	}
 	out := map[string]any{"id": lib.ID, "name": lib.Name, "type": lib.Type, "location": config.Location(lib), "items": count, "updated": updated}
+	if snap != nil {
+		out["covers"] = coverRefs(snap.Data.Items, 4)
+	}
 	out["reachable"] = a.reachable(lib)
 	switch lib.Type {
 	case "s3":
@@ -143,6 +147,43 @@ func (a *App) Describe(lib config.Library) (map[string]any, *media.Snapshot) {
 		out["convertible"] = true
 	}
 	return out, snap
+}
+
+// coverRef names one cover image: /thumbs/<library>/<id>-<ver>-<i>.avif.
+type coverRef struct {
+	ID  string `json:"id"`
+	Ver string `json:"ver"`
+	I   int    `json:"i"`
+}
+
+// coverRefs are the covers of the newest videos that have one, for a library's tile.
+func coverRefs(items []media.Item, n int) []coverRef {
+	var top []*media.Item
+	for i := range items {
+		it := &items[i]
+		if it.Frames == 0 || it.Kind != "video" {
+			continue
+		}
+		pos := len(top)
+		for pos > 0 && top[pos-1].MTime < it.MTime {
+			pos--
+		}
+		if pos < n {
+			top = append(top[:pos], append([]*media.Item{it}, top[pos:]...)...)
+			if len(top) > n {
+				top = top[:n]
+			}
+		}
+	}
+	out := make([]coverRef, len(top))
+	for i, it := range top {
+		c := 0
+		if it.Cover != nil {
+			c = *it.Cover
+		}
+		out[i] = coverRef{it.ID, it.Ver, c}
+	}
+	return out
 }
 
 // reachable reports whether a library's media can be read at all: its folder is there (a disk can be unplugged, a

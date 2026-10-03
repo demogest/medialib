@@ -97,6 +97,9 @@ func cmdIndex(cfg *config.Config, args []string) error {
 		libs = cfg.Libraries()
 	} else {
 		lib, ok := cfg.Library(*id)
+		if !ok && len(cfg.Libraries()) == 0 {
+			return errors.New("No libraries yet. Add a folder first: medialib add PATH")
+		}
 		if !ok {
 			var ids []string
 			for _, l := range cfg.Libraries() {
