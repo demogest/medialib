@@ -8,10 +8,10 @@ It runs as a **desktop app** on your own machine, or as a plain **web server** y
 
 **Library**
 - Folder tree, grouped cover grids with a floating full-path title, search, and sort by name, date, size or length.
-- **Search** (the box in the library, and `Ctrl+K` for every library at once): by name, folder, extension, codec or resolution (`hevc`, `4k`, `1080p`); Chinese, Japanese and any other script; Chinese by **pinyin**, full (`donghua`) or initials (`dh`); hiragana and katakana alike; fuzzy, so letters in order (`hldy`) and a slip of the keys (`holidya`) still find the file. Several words must all match. Names, folders and their pinyin are stored in the index as soon as files are listed, so files an indexing run has not reached yet are searchable already. Results are ranked by relevance (the sort box offers *Best match* while you search); `Enter` in the palette plays the file in your player, `Ctrl+Enter` shows it in its folder.
+- **Search** (the box in the library, and `Ctrl+K` for every library at once): by name, folder, extension, codec or resolution (`hevc`, `4k`, `1080p`); Chinese, Japanese and any other script; Chinese by **pinyin**, full (`donghua`) or initials (`dh`); hiragana and katakana alike; fuzzy, so letters in order (`hldy`) and a slip of the keys (`holidya`) still find the file. Several words must all match. **Filters** narrow the results down, or list files on their own: `dur>1h`, `dur<20m` (a bare number is minutes), `size<2g`, `size>500mb` (a bare number is megabytes), `date>=2024-05`, `date=2024` (a year, month or day of the file's date), `res>=1080`, `res>=4k`, with `<`, `<=`, `>`, `>=` or `=`. Names, folders and their pinyin are stored in the index as soon as files are listed, so files an indexing run has not reached yet are searchable already. Results are ranked by relevance (the sort box offers *Best match* while you search); `Enter` in the palette plays the file in your player, `Ctrl+Enter` shows it in its folder.
 - Five real keyframes per video; hover a cover to scrub through them. The indexer reads an MP4's own sample index and fetches only the bytes of the chosen keyframes (about 1 to 4 MB per video, even over the network). H.264, HEVC and AV1; other formats fall back to ffmpeg seeking. Indexing is incremental and multithreaded.
 - Libraries can be a local folder, a NAS share, or a bucket folder read straight through the S3 API.
-- Click a cover to open it in mpv, VLC, PotPlayer, MPC or the system default. Play a whole folder as a playlist, or copy its stream URL.
+- Click a cover to open it in mpv, VLC, PotPlayer, MPC or the system default. Play a whole folder as a playlist, or shuffled, or copy its stream URL.
 
 **Storage** (new in 2.0)
 - Connect to **RustFS, MinIO, Amazon S3, Cloudflare R2, Backblaze B2, Wasabi, Alibaba OSS, Tencent COS, DigitalOcean Spaces, Google Cloud Storage** (interoperability mode) or anything else that speaks S3.
@@ -148,7 +148,7 @@ Measured against the Python version this replaced (same machine, 4 cores):
 | indexing 24 short MP4s | 2.4 s | 0.75 s |
 | streaming a 300 MB local file | 2.0 GB/s | 1.8 GB/s (the loopback is the limit) |
 
-Searching 50,000 files takes 3 to 15 ms per query on a 4-core machine (typo-tolerant and pinyin matching included), and allocates nothing, so typing in the search box stays smooth in big libraries. Picking each video's cover reads the decoded frames' luma plane directly, about 20 times faster than going through every pixel's colour.
+Searching 50,000 files takes 3 to 15 ms per query on a 4-core machine (typo-tolerant and pinyin matching included), and allocates nothing, so typing in the search box stays smooth in big libraries. Picking each video's cover reads the decoded frames' luma plane directly, about 20 times faster than going through every pixel's colour. While a library is being indexed, each saved index goes to the server in memory instead of being read back from disk; reading one from disk (50,000 files) takes about 0.3 s.
 
 The index is serialized once per change instead of once per request, answers to other computers are gzip-compressed, and all of a video's keyframes are decoded by a single ffmpeg process (byte-identical to decoding them one by one; it falls back to that if anything looks off), which matters most on Windows where starting a program is slow.
 

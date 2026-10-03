@@ -15,6 +15,7 @@ const KNOWN_TYPES = ['mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', 'wmv', 'flv', 't
 const COMMON_VIDEO = new Set(['mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', 'wmv']);
 const defaultHidden = () => new Set(KNOWN_TYPES.filter(t => !COMMON_VIDEO.has(t)));
 const sameSet = (a, b) => a.size === b.size && [...a].every(x => b.has(x));
+const shuffled = list => { const a = [...list]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const inScope = (it, s) => !s || it.dir === s || it.dir.startsWith(s + '/');
 const TYPE_LABEL = { local: 'Local folder', s3: 'S3 bucket', rclone: 'S3 via rclone' };
 // A file's path on the computer running medialib, written the way that computer writes paths (D:\Videos\a.mp4 on
@@ -44,7 +45,7 @@ export async function mount(root, parts) {
   const S = {
     lib: null, info: null, items: [], byId: new Map(), scope: '', q: '', sort: store.get('sort', 'name'),
     tree: null, nodes: new Map(), shown: [], hidden: defaultHidden(), visibleIds: [], player: null,
-    match: null, rank: null, sortAuto: true, pendingReveal: null,
+    match: null, rank: null, ranked: true, sortAuto: true, pendingReveal: null,
   };
   try { const saved = store.get('hiddenTypes', null); if (saved) S.hidden = new Set(JSON.parse(saved)); } catch { /* keep the default */ }
 
@@ -53,7 +54,8 @@ export async function mount(root, parts) {
 
   // ---------------------------------------------------------------- skeleton
   const libBtn = h('button.btn.lib-switch', { type: 'button', 'aria-haspopup': 'menu', onclick: e => openSwitcher(e.currentTarget) });
-  const qInput = h('input.input', { type: 'search', placeholder: 'Search names   ( / )', 'aria-label': 'Search names', autocomplete: 'off' });
+  const qInput = h('input.input', { type: 'search', placeholder: 'Search names   ( / )', 'aria-label': 'Search names', autocomplete: 'off',
+    title: 'Names, folders, codecs, pinyin; typos are forgiven.\nFilters, alone or with words: dur>1h  size<2g  date>=2024-05  res>=1080' });
   const sortSel = h('select', { 'aria-label': 'Sort' }, [['rel', 'Best match'], ['name', 'Name'], ['new', 'Newest'], ['size', 'Largest'], ['dur', 'Longest']].map(([v, t]) => h('option', { value: v }, t)));
   if (S.sort === 'rel') S.sort = 'name'; // "Best match" only means something while searching
   sortSel.value = S.sort;
@@ -75,11 +77,12 @@ export async function mount(root, parts) {
   const crumbs = h('ol.crumbs');
   const stats = h('div.stats');
   const playAll = h('button.btn.primary', { type: 'button', onclick: () => play(S.visibleIds) }, icon('play', 'sm'), 'Play all');
+  const shuffleAll = h('button.btn', { type: 'button', title: 'Play everything shown, in random order', onclick: () => play(shuffled(S.visibleIds)) }, icon('shuffle', 'sm'), 'Shuffle');
   const copyPl = h('button.btn', { type: 'button', onclick: () => copy(`${location.origin}/api/playlist.m3u8?lib=${encodeURIComponent(S.lib)}&dir=${encodeURIComponent(S.scope)}` + (S.hidden.size ? '&hide=' + encodeURIComponent([...S.hidden].join(',')) : ''), 'Playlist URL') }, icon('link', 'sm'), 'Copy playlist URL');
   const groups = h('div#groups');
   const empty = h('p.empty', { hidden: true }, 'Nothing here matches.');
   const main = h('section.lib-main', banner, warnings,
-    h('div.scopebar', h('div.scope-text', crumbs, stats), h('div.actions', playAll, copyPl)), groups, empty);
+    h('div.scopebar', h('div.scope-text', crumbs, stats), h('div.actions', playAll, shuffleAll, copyPl)), groups, empty);
 
   const bar = h('header.lib-bar', navToggle, libBtn, h('div.search', icon('search', 'sm'), qInput), h('div.bar-spacer'), sortSel, typesBtn, optBtn, ring);
   const view = h('div.lib-view', bar, h('div.lib-body', nav, main), scrim);
@@ -313,8 +316,9 @@ export async function mount(root, parts) {
     if (q && S.match) return S.shown.filter(it => inScope(it, s) && S.match.has(it.id));
     return S.shown.filter(it => inScope(it, s) && (!q || it.name.toLowerCase().includes(q) || it.dir.toLowerCase().includes(q)));
   };
-  const effectiveSort = () => (S.match && S.q.trim() && (S.sortAuto || S.sort === 'rel') ? 'rel' : S.sort === 'rel' ? 'name' : S.sort);
-  const paintSort = () => { sortSel.value = S.match && S.q.trim() && S.sortAuto ? 'rel' : S.sort; };
+  // "Best match" only means something for words: a query of filters alone (dur>1h) keeps the chosen order.
+  const effectiveSort = () => (S.match && S.q.trim() && S.ranked && (S.sortAuto || S.sort === 'rel') ? 'rel' : S.sort === 'rel' ? 'name' : S.sort);
+  const paintSort = () => { sortSel.value = effectiveSort(); };
   let searchSeq = 0;
   async function runSearch() {
     const q = qInput.value, mine = ++searchSeq;
@@ -325,6 +329,7 @@ export async function mount(root, parts) {
       if (mine !== searchSeq) return;
       S.match = new Set(j.ids);
       S.rank = new Map(j.ids.map((id, i) => [id, i]));
+      S.ranked = j.ranked !== false;
     } catch {
       if (mine !== searchSeq) return;
       S.match = S.rank = null;

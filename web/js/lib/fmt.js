@@ -22,7 +22,7 @@ export const span = s => {
 export const resLabel = (w, h) => {
   if (!w || !h) return '';
   const hi = Math.max(w, h), lo = Math.min(w, h);
-  return hi >= 3800 ? '4K' : hi >= 2500 ? '1440p' : hi >= 1900 ? '1080p' : hi >= 1260 ? '720p' : lo + 'p';
+  return hi >= 7600 ? '8K' : hi >= 3800 ? '4K' : hi >= 2500 ? '1440p' : hi >= 1900 ? '1080p' : hi >= 1260 ? '720p' : lo + 'p';
 };
 export const stem = n => n.replace(/\.[^.]+$/, '');
 export const leaf = p => p.replace(/\/$/, '').slice(p.replace(/\/$/, '').lastIndexOf('/') + 1);

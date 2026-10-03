@@ -12,6 +12,7 @@ type Doc struct {
 	NameP, NameI string // folded pinyin of the name: full syllables and initials ("" without Han characters)
 	DirP, DirI   string // the same for the folder path
 	Tags         string // folded extension, codec, kind and resolution words, so "1080p" or "hevc" find files too
+	Facts        Facts  // numbers for filters (dur>1h, size<2g ...); set them after NewDoc
 	words        []string
 }
 
@@ -37,13 +38,18 @@ type token struct {
 }
 
 // Query is a parsed search. Its words must all match (in any order); each may match in the name, the path, the
-// tags, as pinyin, or loosely.
-type Query struct{ toks []token }
+// tags, as pinyin, or loosely. Its filters (dur>1h, size<2g, date>=2024-05, res>=1080) must all hold.
+type Query struct {
+	toks    []token
+	filters []filter
+}
 
-// Parse splits a typed query into words.
+// Parse splits a typed query into words and filters.
 func Parse(q string) Query {
 	var out Query
-	for _, w := range strings.Fields(Fold(q)) {
+	words, filters := splitFilters(strings.Fields(Fold(q)))
+	out.filters = filters
+	for _, w := range words {
 		t := token{s: w, r: []rune(w)}
 		t.latin = true
 		for _, r := range w {
@@ -61,11 +67,12 @@ func Parse(q string) Query {
 }
 
 // Empty reports whether there is nothing to look for.
-func (q Query) Empty() bool { return len(q.toks) == 0 }
+func (q Query) Empty() bool { return len(q.toks) == 0 && len(q.filters) == 0 }
 
-// Score rates how well d answers the query; ok is false when some word matches nowhere. Higher is better.
+// Score rates how well d answers the query; ok is false when some word matches nowhere or a filter fails. Higher is
+// better.
 func (q Query) Score(d *Doc) (score int, ok bool) {
-	if len(q.toks) == 0 {
+	if q.Empty() || !q.filtersPass(d) {
 		return 0, false
 	}
 	for _, t := range q.toks {
