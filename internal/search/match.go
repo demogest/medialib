@@ -3,6 +3,7 @@ package search
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Doc is the searchable form of one file. Build it with NewDoc once and match it against many queries.
@@ -29,9 +30,10 @@ func wordsOf(s string) []string {
 
 type token struct {
 	s     string
-	n     int  // length in characters
-	latin bool // only a-z and 0-9: may be pinyin
-	han   bool // holds a Han character
+	r     []rune // the characters of s
+	n     int    // length in characters
+	latin bool   // only a-z and 0-9: may be pinyin
+	han   bool   // holds a Han character
 }
 
 // Query is a parsed search. Its words must all match (in any order); each may match in the name, the path, the
@@ -42,7 +44,7 @@ type Query struct{ toks []token }
 func Parse(q string) Query {
 	var out Query
 	for _, w := range strings.Fields(Fold(q)) {
-		t := token{s: w}
+		t := token{s: w, r: []rune(w)}
 		t.latin = true
 		for _, r := range w {
 			t.n++
@@ -85,8 +87,7 @@ func at(text string, i int, base int) int {
 	case i == 0:
 		s += 200
 	default:
-		r := []rune(text[:i])
-		if p := r[len(r)-1]; !isWordRune(p) || unicode.Is(unicode.Han, p) {
+		if p, _ := utf8.DecodeLastRuneInString(text[:i]); !isWordRune(p) || unicode.Is(unicode.Han, p) {
 			s += 100
 		}
 	}
@@ -157,7 +158,7 @@ func matchToken(t token, d *Doc) int {
 			limit = 2
 		}
 		for _, w := range d.words {
-			if near(w, t.s, limit) {
+			if near(w, t.r, limit) {
 				up(250)
 				break
 			}
@@ -168,28 +169,46 @@ func matchToken(t token, d *Doc) int {
 
 // subsequence finds the characters of t in order in text, as close together as it can, and scores the tightness. It
 // refuses spreads wider than a few times the word, so a long name does not match everything.
+//
+// It runs for every file on most keystrokes, so it reads text in place: no copies, and no look further from a
+// starting point than the widest spread it would accept.
 func subsequence(text string, t token) int {
-	tr := []rune(t.s)
-	xr := []rune(text)
-	bestSpan := -1
-	for start := 0; start < len(xr); start++ {
-		if xr[start] != tr[0] {
-			continue
-		}
-		j, last := 1, start
-		for k := start + 1; k < len(xr) && j < len(tr); k++ {
-			if xr[k] == tr[j] {
-				j++
-				last = k
-			}
-		}
-		if j == len(tr) {
-			if span := last - start + 1; bestSpan < 0 || span < bestSpan {
-				bestSpan = span
+	tr := t.r
+	// One greedy pass says whether the characters occur in order at all, which most names fail.
+	j := 0
+	for _, c := range text {
+		if c == tr[j] {
+			if j++; j == len(tr) {
+				break
 			}
 		}
 	}
-	if bestSpan < 0 || bestSpan > len(tr)*3+2 {
+	if j < len(tr) {
+		return 0
+	}
+	widest := len(tr)*3 + 2
+	bestSpan := -1
+	for i, start := 0, 0; i < len(text); start++ {
+		c, w := utf8.DecodeRuneInString(text[i:])
+		i += w
+		if c != tr[0] {
+			continue
+		}
+		j, k, span := 1, start, 1
+		for p := i; j < len(tr) && p < len(text) && k-start+1 < widest; {
+			x, xw := utf8.DecodeRuneInString(text[p:])
+			p += xw
+			k++
+			if x == tr[j] {
+				j++
+				span = k - start + 1
+			}
+		}
+		if j == len(tr) && (bestSpan < 0 || span < bestSpan) {
+			bestSpan = span
+		}
+	}
+	if bestSpan < 0 || bestSpan > widest {
 		return 0
 	}
 	return 400 - (bestSpan-len(tr))*20
@@ -197,15 +216,43 @@ func subsequence(text string, t token) int {
 
 // near reports whether a and b are within the given number of edits (insert, delete, replace, swap of neighbours),
 // where b may also be matched against the start of a, so a word typed with a slip and not finished still counts.
-func near(a, b string, limit int) bool {
-	ar, br := []rune(a), []rune(b)
-	if len(ar) > len(br)+limit {
-		ar = ar[:len(br)+limit]
+func near(a string, b []rune, limit int) bool {
+	var buf [64]rune
+	ar := buf[:0]
+	for _, r := range a {
+		if len(ar) == len(b)+limit {
+			break
+		}
+		ar = append(ar, r)
 	}
-	if abs(len(ar)-len(br)) > limit {
+	if abs(len(ar)-len(b)) > limit {
 		return false
 	}
-	return edits(ar, br) <= limit
+	// Each character of b that a does not hold at all costs an insertion or a replacement of its own.
+	var ascii [2]uint64
+	for _, r := range ar {
+		if r < 128 {
+			ascii[r>>6] |= 1 << (r & 63)
+		}
+	}
+	missing := 0
+	for _, r := range b {
+		if r < 128 && ascii[r>>6]&(1<<(r&63)) == 0 || r >= 128 && !containsRune(ar, r) {
+			if missing++; missing > limit {
+				return false
+			}
+		}
+	}
+	return withinEdits(ar, b, limit)
+}
+
+func containsRune(rs []rune, r rune) bool {
+	for _, x := range rs {
+		if x == r {
+			return true
+		}
+	}
+	return false
 }
 
 func abs(n int) int {
@@ -215,27 +262,40 @@ func abs(n int) int {
 	return n
 }
 
-// edits is the optimal-string-alignment distance.
-func edits(a, b []rune) int {
-	prev2 := make([]int, len(b)+1)
-	prev := make([]int, len(b)+1)
-	cur := make([]int, len(b)+1)
+// withinEdits reports whether the optimal-string-alignment distance of a and b is at most limit. It stops as soon as
+// no row can come back under the limit: a cell is reached from the row above (or, by a swap, the one above that, at
+// a cost of one), so min(this row, the row above + 1) never goes down from one row to the next.
+func withinEdits(a, b []rune, limit int) bool {
+	var bufs [3][65]int
+	prev2, prev, cur := bufs[0][:], bufs[1][:], bufs[2][:]
+	if len(b)+1 > len(prev) {
+		prev2, prev, cur = make([]int, len(b)+1), make([]int, len(b)+1), make([]int, len(b)+1)
+	}
+	prev2, prev, cur = prev2[:len(b)+1], prev[:len(b)+1], cur[:len(b)+1]
 	for j := range prev {
 		prev[j] = j
 	}
+	prevMin := 0
 	for i := 1; i <= len(a); i++ {
 		cur[0] = i
+		rowMin := i
 		for j := 1; j <= len(b); j++ {
 			cost := 1
 			if a[i-1] == b[j-1] {
 				cost = 0
 			}
-			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+			v := min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
 			if i > 1 && j > 1 && a[i-1] == b[j-2] && a[i-2] == b[j-1] {
-				cur[j] = min(cur[j], prev2[j-2]+1)
+				v = min(v, prev2[j-2]+1)
 			}
+			cur[j] = v
+			rowMin = min(rowMin, v)
 		}
+		if min(rowMin, prevMin+1) > limit {
+			return false
+		}
+		prevMin = rowMin
 		prev2, prev, cur = prev, cur, prev2
 	}
-	return prev[len(b)]
+	return prev[len(b)] <= limit
 }
