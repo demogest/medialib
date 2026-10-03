@@ -301,9 +301,14 @@ func coverScore(path string) float64 {
 		}
 		return 0
 	}
+	return imageScore(img)
+}
+
+func imageScore(img image.Image) float64 {
 	// Mean and standard deviation of luma over a 64x36 box-filtered thumbnail.
 	const gw, gh = 64, 36
 	b := img.Bounds()
+	plane, stride := lumaPlane(img)
 	var sum, sumSq float64
 	for gy := 0; gy < gh; gy++ {
 		for gx := 0; gx < gw; gx++ {
@@ -318,6 +323,16 @@ func coverScore(path string) float64 {
 			var acc float64
 			var n int
 			for y := y0; y < y1 && y < b.Max.Y; y++ {
+				if plane != nil {
+					row := plane[(y-b.Min.Y)*stride:]
+					var sum int
+					for x := x0; x < x1 && x < b.Max.X; x++ {
+						sum += int(row[x-b.Min.X])
+						n++
+					}
+					acc += float64(sum)
+					continue
+				}
 				for x := x0; x < x1 && x < b.Max.X; x++ {
 					acc += luma(img, x, y)
 					n++
@@ -334,6 +349,19 @@ func coverScore(path string) float64 {
 	mean := sum / cnt
 	std := math.Sqrt(math.Max(0, sumSq/cnt-mean*mean))
 	return std * (1 - math.Min(1, math.Abs(mean-115)/160))
+}
+
+// lumaPlane returns an image's 8-bit luma samples and their row stride, when it keeps them: JPEG and lossy WebP decode
+// to YCbCr, whose Y plane is the luma. Reading it directly is several times faster than converting every pixel to RGB
+// and back (and allocates nothing). nil means "ask the pixels one by one".
+func lumaPlane(img image.Image) ([]uint8, int) {
+	switch m := img.(type) {
+	case *image.YCbCr:
+		return m.Y[m.YOffset(m.Rect.Min.X, m.Rect.Min.Y):], m.YStride
+	case *image.Gray:
+		return m.Pix[m.PixOffset(m.Rect.Min.X, m.Rect.Min.Y):], m.Stride
+	}
+	return nil, 0
 }
 
 func luma(img image.Image, x, y int) float64 {
