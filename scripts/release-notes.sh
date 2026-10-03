@@ -3,12 +3,13 @@
 # change since the previous version (each commit's title and text, so a squash-merged pull request brings its list of
 # changes), the downloads, and a link to the full comparison.
 #
-#   scripts/release-notes.sh v3.2.0 > notes.md
+#   scripts/release-notes.sh v3.2.0 [dist/] > notes.md       dist/: the files being released, for the downloads list
 #
 # The version need not be tagged yet (a dry run): the changes then run up to HEAD. Needs the history and the tags
 # (a full clone, or actions/checkout with fetch-depth: 0).
 set -eu
-tag=${1:?usage: scripts/release-notes.sh VERSION}
+tag=${1:?usage: scripts/release-notes.sh VERSION [DIST_DIR]}
+dist=${2:-}
 repo=${GITHUB_REPOSITORY:-demogest/medialib}
 
 # The previous version: for a tag, the one before it; for a dry run, the newest at or before HEAD.
@@ -57,20 +58,43 @@ git log --no-merges --format='%x1e%s%x1f%b' "$range" | awk '
     printf "%s\n", (out == "" ? "" : "\n" out)
   }'
 
-cat <<EOF
-## Downloads
-
-| File | What it is |
-|---|---|
-| \`medialib-setup-windows-amd64.exe\` | Windows: desktop app installer (per-user; can install ffmpeg) |
-| \`medialib-desktop-windows-amd64.zip\` | Windows: desktop app, portable |
-| \`medialib-desktop-darwin-arm64\` | macOS (Apple silicon): desktop app |
-| \`medialib-desktop-linux-amd64\` | Linux: desktop app (GTK 3 and WebKitGTK 4.1) |
-| \`medialib-<os>-<arch>\` | Server and command line (\`medialib serve\`), one binary with the UI inside |
-| \`SHA256SUMS\` | Checksums: \`sha256sum -c SHA256SUMS --ignore-missing\` |
-
-Covers need \`ffmpeg\` and \`ffprobe\` on \`PATH\`.
-EOF
+# The downloads: the files in DIST_DIR (the ones being released), each described from its name. Without one (notes
+# written into a release that already has its files) there is no list.
+if [ -n "$dist" ] && [ -d "$dist" ]; then
+  describe() {
+    os_arch=$(printf '%s' "$1" | sed -nE 's/^medialib-[^-]+(-[^-]+)?-(windows|macos|linux)-(x64|arm64).*/\2 \3/p')
+    set -- "$1" $os_arch
+    os=${2:-} arch=${3:-}
+    case $arch in x64) arch="x64 (Intel, AMD)" ;; arm64) arch=ARM64 ;; esac
+    case $os in
+      windows) os=Windows ;;
+      macos) os=macOS; case ${3:-} in arm64) arch="Apple silicon" ;; x64) arch=Intel ;; esac ;;
+      linux) os=Linux ;;
+    esac
+    case $1 in
+      *-setup.exe) echo "1|$os $arch|Desktop app, installer: per user, Start menu, can install ffmpeg" ;;
+      *-portable.zip) echo "2|$os $arch|Desktop app, portable: unzip and run medialib.exe" ;;
+      *-server.tar.gz | *-server.zip) echo "4|$os $arch|Server and command line (\`medialib serve\`)" ;;
+      *-linux-*.tar.gz) echo "3|$os $arch|Desktop app (needs GTK 3 and WebKitGTK 4.1)" ;;
+      *.tar.gz) echo "3|$os $arch|Desktop app" ;;
+      SHA256SUMS) echo "9||Checksums: \`sha256sum -c SHA256SUMS\`" ;;
+      *) echo "8||" ;;
+    esac
+  }
+  echo "## Downloads"
+  echo
+  echo "| File | For | What it is |"
+  echo "|---|---|---|"
+  for f in "$dist"/*; do
+    [ -f "$f" ] || continue
+    name=$(basename "$f")
+    printf '%s|%s\n' "$(describe "$name")" "$name"
+  done | sort -t '|' -k1,1n -k4,4 | while IFS='|' read -r _ what desc name; do
+    printf '| `%s` | %s | %s |\n' "$name" "$what" "$desc"
+  done
+  echo
+  echo 'Covers need `ffmpeg` and `ffprobe` on `PATH`.'
+fi
 if [ -n "$prev" ]; then
   printf '\n**Full changelog**: https://github.com/%s/compare/%s...%s\n' "$repo" "$prev" "$tag"
 fi
