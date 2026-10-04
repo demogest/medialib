@@ -1,4 +1,4 @@
-# medialib builds. `make` builds the server; `make desktop` the desktop app (needs a C compiler, see README).
+# medialib builds. `make` builds the server; `make desktop` the desktop app (needs a C compiler, see CONTRIBUTING.md).
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/demogest/medialib/internal/version.Version=$(VERSION)
 EXE     := $(if $(filter windows,$(shell go env GOOS)),.exe,)
@@ -38,8 +38,8 @@ winres:
 vet:
 	go vet ./...
 
-# What CI checks besides the tests: Go formatting, and that every script of the UI (no build step) and the shell
-# scripts at least parse, and that VERSION (the last release, see README) is a version. The UI check needs Node 22 or
+# What CI checks besides the tests: Go formatting, that every script of the UI (no build step) and the shell scripts
+# at least parse, and that VERSION (the last release, see CONTRIBUTING.md) is a version. The UI check needs Node 22 or
 # later (module syntax is detected by itself).
 lint:
 	@test -z "$$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }

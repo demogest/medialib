@@ -3,7 +3,7 @@
 package main
 
 // The plain build has no web view of its own: `medialib desktop` borrows an app-mode window from Edge, Chrome or
-// Chromium. Build with `-tags desktop` for the native window (see README).
+// Chromium. Build with `-tags desktop` for the native window (see CONTRIBUTING.md).
 
 const defaultCommand = ""
 
