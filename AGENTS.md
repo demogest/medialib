@@ -38,3 +38,4 @@ Before you finish: `make lint` and `make test` pass; `make e2e` too if you touch
 - **Versions**: never edit `VERSION`, `cmd/medialib/winres/versioninfo.json`, `cmd/medialib/resource_windows_*.syso` or the installer's `AppVersion` by hand; the release workflow sets them with `scripts/set-version.sh`.
 - **Commits and pull requests**: a title starting with `Fix` (or `fix:`) marks a bug fix, and such commits are released automatically every other day. Do not start a title with "Fix" unless the change is a bug fix. Pull requests are squash-merged: the title becomes a heading in the release notes, the description the text under it.
 - Never commit `config.json`, `cache/`, `dist/` or any credential.
+- A vulnerability you find goes to the maintainers privately ([SECURITY.md](SECURITY.md)), not into a public issue, a pull request's title or description, or a commit message.
