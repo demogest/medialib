@@ -1,46 +1,120 @@
-# Builds every download and publishes them as one GitHub release, with notes and checksums.
+# Builds every download and publishes them as one GitHub release, with notes and checksums, then writes the version
+# back into main (VERSION and the Windows version files, scripts/set-version.sh) so main says what was released last.
 #
-# Pushing a v* tag releases it. So does running the workflow by hand (Actions > release > Run workflow) on main with
-# "publish" ticked: the release and its tag are made on the commit the run built. Without "publish" a run by hand is a
-# dry run: it builds everything and writes the notes and checksums, keeps them as the run's artifacts and shows the
-# notes on the run's page, but publishes nothing.
+# Three ways to release:
+#   - Bug fixes go out by themselves, every other day, together: if main has any since the last release, the scheduled
+#     run releases them as the next patch version (the last digit), or the next alpha or beta while a version is in one
+#     (scripts/next-version.sh fix). A fix is a commit whose title starts with "Fix" ("Fix ...", "fix: ...",
+#     "fix(ui): ...") or whose pull request has the "bug" label. Two days without one release nothing.
+#   - Push a v* tag.
+#   - Run the workflow by hand (Actions > release > Run workflow) on main with "publish" ticked: it releases the
+#     version given, or the next one (patch, minor or major, or an alpha or beta of it), and tags main's commit with it.
+# A version with a "-" in it (v3.4.0-beta.1) is published as a pre-release: the app does not offer it as an update, and
+# VERSION stays at the last full release.
+# A run by hand without "publish" is a dry run: it builds everything and writes the notes and checksums, keeps them as
+# the run's artifacts and shows the notes on the run's page, but publishes nothing.
 name: release
 on:
   push:
     tags: ["v*"]
+  schedule:
+    - cron: "17 3 */2 * *" # every other day (the odd days of the month), 03:17 UTC
   workflow_dispatch:
     inputs:
+      bump:
+        description: "Release the next version: patch (bug fixes), minor or major"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      prerelease:
+        description: "Or a pre-release of it"
+        type: choice
+        options: [none, alpha, beta]
+        default: none
       version:
-        description: "Version, e.g. v3.2.0"
-        required: true
-        default: v0.0.0-dryrun
+        description: "Or exactly this version, e.g. v3.4.0 or v3.4.0-beta.1 (overrides the two above)"
+        required: false
+        default: ""
       publish:
         description: "Publish it: tag main's commit with the version and release it (otherwise a dry run)"
         type: boolean
         default: false
-# One run per version at a time: a second one waits, then finds the version released and stops at the check.
+# One release at a time: the next waits, and decides what to release only once the one before has finished. Dry runs
+# keep out of its way.
 concurrency:
-  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+  group: ${{ (github.event_name != 'workflow_dispatch' || inputs.publish) && 'release' || format('release-dryrun-{0}', github.run_id) }}
 permissions:
   contents: read
-env:
-  VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
 jobs:
-  # A release by hand is checked before anything is built: from main, a plain version number, not released yet.
+  # What this run makes, decided before anything is built: the version, whether it is published (and as a pre-release),
+  # and whether there is anything to build at all. A release other than of a pushed tag is only ever made from main, of
+  # a vX.Y.Z version (or vX.Y.Z-alpha.N, vX.Y.Z-beta.N) that has no tag yet. The next version: scripts/next-version.sh.
   check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # the labels of the pull requests behind main's commits
+    outputs:
+      version: ${{ steps.what.outputs.version }}
+      publish: ${{ steps.what.outputs.publish }}
+      build: ${{ steps.what.outputs.build }}
+      prerelease: ${{ steps.what.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v5
-      - if: github.event_name == 'workflow_dispatch' && inputs.publish
+        with: { fetch-depth: 0 }
+      - id: what
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::releases are made from main, not $GITHUB_REF"; exit 1; }
-          echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::$VERSION is not a version like v3.2.0"; exit 1; }
-          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null; then
-            echo "::error::$VERSION is already tagged"; exit 1
+          set -eu
+          # Whether a commit is a bug fix: by its title, or by the label of the pull request it came from.
+          fix() {
+            git log -1 --format=%s "$1" | grep -Eq '^[Ff]ix(es|ed)?[ :(!]' && return 0
+            gh api "repos/$GITHUB_REPOSITORY/commits/$1/pulls" --jq '.[].labels[].name' | grep -qx bug
+          }
+          build=true
+          if [ "$EVENT" = push ] && [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=$GITHUB_REF_NAME publish=true
+          else
+            if [ "$EVENT" = schedule ]; then
+              last=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)
+              fixed=false
+              [ -z "$last" ] || for c in $(git rev-list --no-merges "$last..HEAD"); do
+                if fix "$c"; then fixed=true; echo "A bug fix since $last: $(git log -1 --format='%h %s' "$c")"; fi
+              done
+              if [ "$fixed" = true ]; then
+                version=$(sh scripts/next-version.sh fix) publish=true
+              else
+                echo "::notice::No bug fix since ${last:-the start}: nothing to release"
+                version='' publish=false build=false
+              fi
+            else
+              version=$(echo "$INPUT_VERSION" | tr -d ' ') publish=$INPUT_PUBLISH
+              [ "$INPUT_PRERELEASE" != none ] || INPUT_PRERELEASE=
+              [ -n "$version" ] || version=$(sh scripts/next-version.sh "$INPUT_BUMP" "$INPUT_PRERELEASE")
+              version=v${version#v}
+            fi
+            if [ "$publish" = true ]; then
+              [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::releases are made from main, not $GITHUB_REF"; exit 1; }
+              echo "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)(\.[0-9]+)?)?$' ||
+                { echo "::error::$version is not a version like v3.4.0 or v3.4.0-beta.1"; exit 1; }
+              ! git ls-remote --exit-code --tags origin "refs/tags/$version" >/dev/null || { echo "::error::$version is already tagged"; exit 1; }
+            fi
           fi
+          case $version in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          echo "version=$version publish=$publish build=$build prerelease=$prerelease"
+          { echo "version=$version"; echo "publish=$publish"; echo "build=$build"; echo "prerelease=$prerelease"; } >> "$GITHUB_OUTPUT"
   server:
     needs: check
+    if: needs.check.outputs.build == 'true'
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -51,7 +125,10 @@ jobs:
         with: { name: server, path: dist/*, if-no-files-found: error }
   windows:
     needs: check
+    if: needs.check.outputs.build == 'true'
     runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -67,12 +144,15 @@ jobs:
             dist/medialib-desktop-windows-*.zip
   desktop:
     needs: check
+    if: needs.check.outputs.build == 'true'
     strategy:
       matrix:
         include:
           - { os: ubuntu-latest, name: linux-amd64 }
           - { os: macos-latest, name: darwin-arm64 }
     runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -85,19 +165,24 @@ jobs:
         with: { name: "desktop-${{ matrix.name }}", path: dist/*, if-no-files-found: error }
   # Only once every build has succeeded: a release is never published with some of its files missing.
   publish:
-    needs: [server, windows, desktop]
+    needs: [check, server, windows, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      PUBLISH: ${{ needs.check.outputs.publish }}
     steps:
       - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
-      # actions/checkout can leave an annotated tag as a plain one, which would lose its message for the notes
-      - if: github.event_name == 'push'
-        run: git fetch --force origin "refs/tags/$VERSION:refs/tags/$VERSION"
-      # a release by hand: tagged here for the notes, and on GitHub along with the release below
-      - if: github.event_name == 'workflow_dispatch' && inputs.publish
-        run: git tag "$VERSION" "$GITHUB_SHA"
+      # A pushed tag: actions/checkout can leave an annotated tag as a plain one, which would lose its message for the
+      # notes. Any other release is tagged here, for the notes, and on GitHub along with the release below.
+      - run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            git fetch --force origin "refs/tags/$VERSION:refs/tags/$VERSION"
+          elif [ "$PUBLISH" = true ]; then
+            git tag "$VERSION" "$GITHUB_SHA"
+          fi
       - uses: actions/download-artifact@v6
         with: { path: build, merge-multiple: true }
       # the builds' own outputs become medialib-<version>-<os>-<arch>[-<kind>] archives (scripts/package-release.sh)
@@ -108,18 +193,54 @@ jobs:
           sh scripts/release-notes.sh "$VERSION" dist > release-notes.md
           { echo "# $VERSION"; echo; cat release-notes.md; echo; echo '```'; cat dist/SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           ls -l dist
-      - if: github.event_name == 'push' || inputs.publish
+      - if: env.PUBLISH == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.VERSION }}
           target_commitish: ${{ github.sha }}
+          prerelease: ${{ needs.check.outputs.prerelease == 'true' }}
           body_path: release-notes.md
           files: dist/*
           fail_on_unmatched_files: true
-      - if: github.event_name != 'push' && !inputs.publish
+      - if: env.PUBLISH != 'true'
         uses: actions/upload-artifact@v5
         with:
           name: release-preview
           path: |
             release-notes.md
             dist/SHA256SUMS
+  # main follows the newest release: VERSION and the Windows version files are set to it (scripts/set-version.sh), so the
+  # next run by hand counts on from it. A pre-release, or a release older than VERSION (a fix of an old version), leaves
+  # them alone. The commit is the workflow's own, so it starts no other workflow.
+  sync:
+    needs: [check, publish]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASED: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with: { ref: main }
+      - uses: actions/setup-go@v6
+        with: { go-version: stable }
+      - run: |
+          set -eu
+          new=${RELEASED#v} current=$(tr -d ' \t\r\n' < VERSION)
+          if ! echo "$new" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+'; then echo "::notice::$RELEASED is a pre-release: VERSION stays $current"; exit 0; fi
+          if [ "$new" = "$current" ]; then echo "VERSION is $current already"; exit 0; fi
+          if [ "$(printf '%s\n' "$current" "$new" | sort -V | tail -n 1)" != "$new" ]; then
+            echo "::notice::$new is older than VERSION ($current): VERSION stays"; exit 0
+          fi
+          sh scripts/set-version.sh "$new"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qam "Set the version to $new, as released"
+          git show --stat HEAD
+          # main may have moved on while the release was built
+          for i in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            sleep $((i * 5)); git pull --rebase -q origin main
+          done
+          echo "::error::could not push the version to main"; exit 1

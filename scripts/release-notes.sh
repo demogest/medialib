@@ -12,16 +12,26 @@ tag=${1:?usage: scripts/release-notes.sh VERSION [DIST_DIR]}
 dist=${2:-}
 repo=${GITHUB_REPOSITORY:-demogest/medialib}
 
-# The previous version: for a tag, the one before it; for a dry run, the newest at or before HEAD.
+# The previous version: for a tag, the one before it; for a dry run, the newest at or before HEAD. A full release
+# counts from the full release before it, so its notes hold everything its alphas and betas brought; a pre-release
+# (v3.4.0-beta.2) from whichever release came last.
+previous() {
+  case $tag in
+    *-*) git describe --tags --abbrev=0 --match 'v[0-9]*' "$1" 2>/dev/null || true ;;
+    *) git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude 'v*-*' "$1" 2>/dev/null || true ;;
+  esac
+}
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
   end=$tag
-  prev=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$tag^" 2>/dev/null || true)
+  prev=$(previous "$tag^")
 else
   end=HEAD
-  prev=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)
+  prev=$(previous HEAD)
 fi
 range=$end
 [ -n "$prev" ] && range="$prev..$end"
+# The release workflow's own commits (scripts/set-version.sh after a release) are not changes.
+skip='^Set the version to [0-9.]*, as released$'
 
 # A message written on the tag itself (git tag -a) leads; a title alone ("medialib 3.2.0") adds nothing.
 if [ "$(git cat-file -t "refs/tags/$tag" 2>/dev/null || true)" = tag ]; then
@@ -37,11 +47,11 @@ else
   echo "## Changes"
 fi
 echo
-if [ -z "$(git rev-list --no-merges --max-count=1 "$range")" ]; then
+if [ -z "$(git rev-list --no-merges --invert-grep --grep="$skip" --max-count=1 "$range")" ]; then
   printf 'No changes yet.\n\n'
 fi
 # Each commit: its title as a heading, then its text without the trailers (Co-Authored-By: and the like).
-git log --no-merges --format='%x1e%s%x1f%b' "$range" | awk '
+git log --no-merges --invert-grep --grep="$skip" --format='%x1e%s%x1f%b' "$range" | awk '
   BEGIN { RS = "\036"; FS = "\037" }
   NF == 0 || $1 == "" { next }
   {

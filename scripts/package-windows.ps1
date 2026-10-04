@@ -1,12 +1,12 @@
 # Builds the Windows desktop app and packages it: dist\medialib-desktop.exe, a portable zip and a setup installer.
-#   powershell -File scripts\package-windows.ps1 [-Version 3.2.0] [-Arch amd64|arm64]
+#   powershell -File scripts\package-windows.ps1 [-Version 3.4.0] [-Arch amd64|arm64]
 # Needs Go. The installer also needs Inno Setup 6 (iscc); without it only the exe and zip are made. A -Version with a
 # version number in it is also stamped into resource_windows_<arch>.syso (git checkout it afterwards to undo that).
 param([string]$Version = "", [string]$Arch = "amd64")
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 if (-not $Version) { $Version = (git describe --tags --always --dirty 2>$null); if (-not $Version) { $Version = "dev" } }
-$num = if ($Version -match '(\d+\.\d+\.\d+)') { $Matches[1] } else { "3.2.0" }
+$num = if ($Version -match '(\d+\.\d+\.\d+)') { $Matches[1] } else { (Get-Content -Raw VERSION).Trim() }
 New-Item -ItemType Directory -Force dist | Out-Null
 if ($Version -match '(\d+)\.(\d+)\.(\d+)') {
   # Stamp the version into the exe's Properties > Details (as `make winres` does), before GOOS/GOARCH point go run elsewhere.
