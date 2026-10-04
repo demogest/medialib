@@ -2,12 +2,15 @@
 # back into main (VERSION and the Windows version files, scripts/set-version.sh) so main says what was released last.
 #
 # Three ways to release:
-#   - A bug fix reaching main releases the next patch version by itself. A fix is a commit whose title starts with
-#     "Fix" ("Fix ...", "fix: ...", "fix(ui): ...") or whose pull request has the "bug" label; anything since the last
-#     release counts, so a fix is not missed when more lands before its release starts. Other pushes release nothing.
+#   - A bug fix reaching main releases the next patch version (the last digit) by itself, or the next alpha or beta
+#     while a version is in one (scripts/next-version.sh fix). A fix is a commit whose title starts with "Fix"
+#     ("Fix ...", "fix: ...", "fix(ui): ...") or whose pull request has the "bug" label; anything since the last release
+#     counts, so a fix is not missed when more lands before its release starts. Other pushes release nothing.
 #   - Push a v* tag.
 #   - Run the workflow by hand (Actions > release > Run workflow) on main with "publish" ticked: it releases the
-#     version given, or the next one (patch, minor or major), and tags main's commit with it.
+#     version given, or the next one (patch, minor or major, or an alpha or beta of it), and tags main's commit with it.
+# A version with a "-" in it (v3.4.0-beta.1) is published as a pre-release: the app does not offer it as an update, and
+# VERSION stays at the last full release.
 # A run by hand without "publish" is a dry run: it builds everything and writes the notes and checksums, keeps them as
 # the run's artifacts and shows the notes on the run's page, but publishes nothing.
 name: release
@@ -18,12 +21,17 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "Release the next version: patch, minor or major"
+        description: "Release the next version: patch (bug fixes), minor or major"
         type: choice
         options: [patch, minor, major]
         default: patch
+      prerelease:
+        description: "Or a pre-release of it"
+        type: choice
+        options: [none, alpha, beta]
+        default: none
       version:
-        description: "Or exactly this version, e.g. v3.4.0 (overrides the bump)"
+        description: "Or exactly this version, e.g. v3.4.0 or v3.4.0-beta.1 (overrides the two above)"
         required: false
         default: ""
       publish:
@@ -37,9 +45,9 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  # What this run makes, decided before anything is built: the version, whether it is published, and whether there is
-  # anything to build at all. A release other than of a pushed tag is only ever made from main, of a plain vX.Y.Z
-  # version that has no tag yet. "The next version" counts on from the newest of VERSION and the released versions.
+  # What this run makes, decided before anything is built: the version, whether it is published (and as a pre-release),
+  # and whether there is anything to build at all. A release other than of a pushed tag is only ever made from main, of
+  # a vX.Y.Z version (or vX.Y.Z-alpha.N, vX.Y.Z-beta.N) that has no tag yet. The next version: scripts/next-version.sh.
   check:
     runs-on: ubuntu-latest
     permissions:
@@ -49,6 +57,7 @@ jobs:
       version: ${{ steps.what.outputs.version }}
       publish: ${{ steps.what.outputs.publish }}
       build: ${{ steps.what.outputs.build }}
+      prerelease: ${{ steps.what.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
@@ -56,23 +65,12 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
           INPUT_VERSION: ${{ inputs.version }}
           INPUT_PUBLISH: ${{ inputs.publish }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          next() {
-            current=$(tr -d ' \t\r\n' < VERSION)
-            released=$(git tag --list 'v*' | sed 's/^v//' | grep -Ex '[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -n 1)
-            base=$(printf '%s\n%s\n' "$current" "$released" | sed '/^$/d' | sort -V | tail -n 1)
-            major=${base%%.*} minor=${base#*.} patch=${base##*.}
-            minor=${minor%.*}
-            case $1 in
-              major) echo "v$((major + 1)).0.0" ;;
-              minor) echo "v$major.$((minor + 1)).0" ;;
-              *) echo "v$major.$minor.$((patch + 1))" ;;
-            esac
-          }
           # Whether a commit is a bug fix: by its title, or by the label of the pull request it came from.
           fix() {
             git log -1 --format=%s "$1" | grep -Eq '^[Ff]ix(es|ed)?[ :(!]' && return 0
@@ -89,24 +87,27 @@ jobs:
                 if fix "$c"; then fixed=true; echo "A bug fix since $last: $(git log -1 --format='%h %s' "$c")"; fi
               done
               if [ "$fixed" = true ]; then
-                version=$(next patch) publish=true
+                version=$(sh scripts/next-version.sh fix) publish=true
               else
                 echo "::notice::No bug fix since ${last:-the start}: nothing to release"
                 version='' publish=false build=false
               fi
             else
               version=$(echo "$INPUT_VERSION" | tr -d ' ') publish=$INPUT_PUBLISH
-              [ -n "$version" ] || version=$(next "$INPUT_BUMP")
+              [ "$INPUT_PRERELEASE" != none ] || INPUT_PRERELEASE=
+              [ -n "$version" ] || version=$(sh scripts/next-version.sh "$INPUT_BUMP" "$INPUT_PRERELEASE")
               version=v${version#v}
             fi
             if [ "$publish" = true ]; then
               [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::releases are made from main, not $GITHUB_REF"; exit 1; }
-              echo "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::$version is not a version like v3.4.0"; exit 1; }
+              echo "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)(\.[0-9]+)?)?$' ||
+                { echo "::error::$version is not a version like v3.4.0 or v3.4.0-beta.1"; exit 1; }
               ! git ls-remote --exit-code --tags origin "refs/tags/$version" >/dev/null || { echo "::error::$version is already tagged"; exit 1; }
             fi
           fi
-          echo "version=$version publish=$publish build=$build"
-          { echo "version=$version"; echo "publish=$publish"; echo "build=$build"; } >> "$GITHUB_OUTPUT"
+          case $version in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          echo "version=$version publish=$publish build=$build prerelease=$prerelease"
+          { echo "version=$version"; echo "publish=$publish"; echo "build=$build"; echo "prerelease=$prerelease"; } >> "$GITHUB_OUTPUT"
   server:
     needs: check
     if: needs.check.outputs.build == 'true'
@@ -196,6 +197,7 @@ jobs:
         with:
           tag_name: ${{ env.VERSION }}
           target_commitish: ${{ github.sha }}
+          prerelease: ${{ needs.check.outputs.prerelease == 'true' }}
           body_path: release-notes.md
           files: dist/*
           fail_on_unmatched_files: true

@@ -208,16 +208,16 @@ The signing tests use the examples published in the AWS documentation. The unit 
 
 Bug fixes are released by themselves. New features are released when you say so: push a tag, or run the release workflow by hand.
 
-- **A bug fix reaching `main`** releases the next patch version (3.3.0 → 3.3.1) by itself. A fix is a commit whose title starts with *Fix* (`Fix the cover cache…`, `fix: …`, `fix(ui): …`), or whose pull request has the **bug** label. Everything since the last release counts, so a fix is not missed when more lands before its release starts. Other pushes release nothing.
+- **A bug fix reaching `main`** releases the next patch version, the last digit (3.3.0 → 3.3.1), by itself; while a version is in alpha or beta, the next one of those instead (3.4.0-beta.1 → 3.4.0-beta.2). A fix is a commit whose title starts with *Fix* (`Fix the cover cache…`, `fix: …`, `fix(ui): …`), or whose pull request has the **bug** label. Everything since the last release counts, so a fix is not missed when more lands before its release starts. Other pushes release nothing.
 - **Push a tag**: `git tag -a v3.4.0 -m "medialib 3.4.0" && git push origin v3.4.0`. A tag message that says more than a title leads the notes.
-- **Actions → release → Run workflow** on `main`, with **publish** ticked. It releases the next version (choose **patch**, **minor** or **major**), or exactly the **version** you type, and tags the commit it built. It refuses a version that is already tagged, or anything but `vX.Y.Z`. Without **publish** it is a dry run: it builds everything and writes the notes and checksums (shown on the run's page and kept as artifacts) but publishes nothing.
+- **Actions → release → Run workflow** on `main`, with **publish** ticked. It releases the next version (choose **patch**, **minor** or **major**, and **alpha** or **beta** for a pre-release of it), or exactly the **version** you type, and tags the commit it built. It refuses a version that is already tagged, or anything but `vX.Y.Z`, `vX.Y.Z-alpha.N` and `vX.Y.Z-beta.N`. Without **publish** it is a dry run: it builds everything and writes the notes and checksums (shown on the run's page and kept as artifacts) but publishes nothing.
 
-"The next version" counts on from the newest of `VERSION` and the versions already released. Whichever way, the workflow:
+"The next version" counts on from the newest of `VERSION` and the versions already released (`scripts/next-version.sh minor beta` prints it). **Alpha and beta versions** (anything with a `-`, like `v3.4.0-beta.1`) are published as GitHub pre-releases: the app does not offer them as updates, and the notes of the full release that follows list everything since the last full release. Whichever way, the workflow:
 
 1. builds every download (the version goes into the program, the Windows file properties and the installer);
 2. packs them under their release names (`scripts/package-release.sh`);
 3. once all of them have built, publishes the release with `SHA256SUMS` and generated notes: every change since the previous version, from the commit messages (a squash-merged pull request brings its list of changes);
-4. writes the version back into `main`: `VERSION` and the Windows version files, with `scripts/set-version.sh`. `VERSION` always says what was released last, and the next run counts on from it. A pre-release, or a fix release of an older version, leaves them as they are.
+4. writes the version back into `main`: `VERSION` and the Windows version files, with `scripts/set-version.sh`. `VERSION` always says which full release came last. A pre-release, or a fix release of an older version, leaves them as they are.
 
 `scripts/release-notes.sh v3.4.0` shows the notes beforehand. **Actions → release-notes → Run workflow** writes the notes into a release that already exists, leaving its files alone.
 

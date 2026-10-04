@@ -12,13 +12,21 @@ tag=${1:?usage: scripts/release-notes.sh VERSION [DIST_DIR]}
 dist=${2:-}
 repo=${GITHUB_REPOSITORY:-demogest/medialib}
 
-# The previous version: for a tag, the one before it; for a dry run, the newest at or before HEAD.
+# The previous version: for a tag, the one before it; for a dry run, the newest at or before HEAD. A full release
+# counts from the full release before it, so its notes hold everything its alphas and betas brought; a pre-release
+# (v3.4.0-beta.2) from whichever release came last.
+previous() {
+  case $tag in
+    *-*) git describe --tags --abbrev=0 --match 'v[0-9]*' "$1" 2>/dev/null || true ;;
+    *) git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude 'v*-*' "$1" 2>/dev/null || true ;;
+  esac
+}
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
   end=$tag
-  prev=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$tag^" 2>/dev/null || true)
+  prev=$(previous "$tag^")
 else
   end=HEAD
-  prev=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)
+  prev=$(previous HEAD)
 fi
 range=$end
 [ -n "$prev" ] && range="$prev..$end"
