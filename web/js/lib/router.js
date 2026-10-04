@@ -23,7 +23,14 @@ export function startRouter({ root, views, fallback, onChange }) {
   let current = null, name = null, token = 0;
   async function apply() {
     let { view, parts } = parseHash();
-    if (!views[view]) { view = fallback; parts = []; history.replaceState(null, '', location.pathname + location.search + href(view)); }
+    let isValidView = Object.prototype.hasOwnProperty.call(views, view) && typeof views[view] === 'function';
+    if (!isValidView) {
+      view = fallback;
+      parts = [];
+      history.replaceState(null, '', location.pathname + location.search + href(view));
+      isValidView = Object.prototype.hasOwnProperty.call(views, view) && typeof views[view] === 'function';
+      if (!isValidView) return;
+    }
     const mine = ++token;
     if (current && name === view && current.update) {
       current.update(parts);
@@ -32,7 +39,8 @@ export function startRouter({ root, views, fallback, onChange }) {
       root.replaceChildren();
       current = null;
       name = view;
-      const mod = await views[view]();
+      const loader = views[view];
+      const mod = await loader();
       if (mine !== token) return;  // another navigation won while the module was loading
       const inst = await mod.mount(root, parts);
       // Another navigation won while this view was loading (a view may redirect while it mounts, and the first
