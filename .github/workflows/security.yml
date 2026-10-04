@@ -30,9 +30,9 @@ jobs:
           - { language: javascript-typescript, build-mode: none }
           - { language: actions, build-mode: none }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - if: matrix.language == 'go'
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with: { go-version: stable }
       - uses: github/codeql-action/init@v4
         with:
@@ -50,9 +50,9 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       # the same Go the releases are built with, so its own vulnerabilities count too
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with: { go-version: stable }
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 -format sarif ./... > govulncheck.sarif
       - uses: github/codeql-action/upload-sarif@v4
