@@ -20,10 +20,18 @@ export function replace(view, ...parts) {
 }
 
 export function startRouter({ root, views, fallback, onChange }) {
+  // A Map, so the name in the address can only ever pick one of these loaders: looked up on the object itself, it
+  // could also find what every object inherits ("#/constructor", "#/toString") and call that.
+  const loaders = new Map(Object.entries(views));
   let current = null, name = null, token = 0;
   async function apply() {
     let { view, parts } = parseHash();
-    if (!views[view]) { view = fallback; parts = []; history.replaceState(null, '', location.pathname + location.search + href(view)); }
+    let load = loaders.get(view);
+    if (typeof load !== 'function') {   // not one of the app's pages
+      view = fallback; parts = [];
+      history.replaceState(null, '', location.pathname + location.search + href(view));
+      load = loaders.get(view);
+    }
     const mine = ++token;
     if (current && name === view && current.update) {
       current.update(parts);
@@ -32,7 +40,7 @@ export function startRouter({ root, views, fallback, onChange }) {
       root.replaceChildren();
       current = null;
       name = view;
-      const mod = await views[view]();
+      const mod = await load();
       if (mine !== token) return;  // another navigation won while the module was loading
       const inst = await mod.mount(root, parts);
       // Another navigation won while this view was loading (a view may redirect while it mounts, and the first
