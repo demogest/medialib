@@ -1,5 +1,5 @@
 # Builds the Windows desktop app and packages it: dist\medialib-desktop.exe, a portable zip and a setup installer.
-#   powershell -File scripts\package-windows.ps1 [-Version 3.3.0] [-Arch amd64|arm64]
+#   powershell -File scripts\package-windows.ps1 [-Version 3.4.0] [-Arch amd64|arm64]
 # Needs Go. The installer also needs Inno Setup 6 (iscc); without it only the exe and zip are made. A -Version with a
 # version number in it is also stamped into resource_windows_<arch>.syso (git checkout it afterwards to undo that).
 param([string]$Version = "", [string]$Arch = "amd64")

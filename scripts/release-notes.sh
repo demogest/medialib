@@ -22,6 +22,8 @@ else
 fi
 range=$end
 [ -n "$prev" ] && range="$prev..$end"
+# The release workflow's own commits (scripts/set-version.sh after a release) are not changes.
+skip='^Set the version to [0-9.]*, as released$'
 
 # A message written on the tag itself (git tag -a) leads; a title alone ("medialib 3.2.0") adds nothing.
 if [ "$(git cat-file -t "refs/tags/$tag" 2>/dev/null || true)" = tag ]; then
@@ -37,11 +39,11 @@ else
   echo "## Changes"
 fi
 echo
-if [ -z "$(git rev-list --no-merges --max-count=1 "$range")" ]; then
+if [ -z "$(git rev-list --no-merges --invert-grep --grep="$skip" --max-count=1 "$range")" ]; then
   printf 'No changes yet.\n\n'
 fi
 # Each commit: its title as a heading, then its text without the trailers (Co-Authored-By: and the like).
-git log --no-merges --format='%x1e%s%x1f%b' "$range" | awk '
+git log --no-merges --invert-grep --grep="$skip" --format='%x1e%s%x1f%b' "$range" | awk '
   BEGIN { RS = "\036"; FS = "\037" }
   NF == 0 || $1 == "" { next }
   {

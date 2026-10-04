@@ -39,7 +39,7 @@ vet:
 	go vet ./...
 
 # What CI checks besides the tests: Go formatting, and that every script of the UI (no build step) and the shell
-# scripts at least parse, and that VERSION (what main releases, see README) is a version. The UI check needs Node 22 or
+# scripts at least parse, and that VERSION (the last release, see README) is a version. The UI check needs Node 22 or
 # later (module syntax is detected by itself).
 lint:
 	@test -z "$$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
