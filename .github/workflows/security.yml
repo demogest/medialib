@@ -1,0 +1,61 @@
+# Security checks. What they find shows in the repository's Security tab (Code scanning) and on pull requests:
+#   - CodeQL reads the Go code, the UI's JavaScript and these workflows for known kinds of vulnerability.
+#   - govulncheck reports the known vulnerabilities, in Go itself and in the modules, that the code actually reaches.
+# Neither fails the build by itself: a finding becomes an alert, and GitHub marks a pull request that brings a new
+# serious one. New vulnerabilities are published all the time, so both also run every week on main.
+name: security
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "41 4 * * 1" # Mondays, 04:41 UTC
+  workflow_dispatch:
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # to upload the results
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { language: go, build-mode: manual }
+          - { language: javascript-typescript, build-mode: none }
+          - { language: actions, build-mode: none }
+    steps:
+      - uses: actions/checkout@v5
+      - if: matrix.language == 'go'
+        uses: actions/setup-go@v6
+        with: { go-version: stable }
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+      # every package, as the server build sees them (the desktop window's files need cgo and are left out)
+      - if: matrix.build-mode == 'manual'
+        run: go build ./...
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"
+  govulncheck:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+      # the same Go the releases are built with, so its own vulnerabilities count too
+      - uses: actions/setup-go@v6
+        with: { go-version: stable }
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 -format sarif ./... > govulncheck.sarif
+      - uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: govulncheck.sarif
+          category: govulncheck

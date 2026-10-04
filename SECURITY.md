@@ -38,3 +38,7 @@ Out of scope:
 - what other computers may do by design on a server opened with `--host` and no password: browse the libraries and watch;
 - a signed-in user slowing the server down;
 - problems in ffmpeg, a player or an S3 store themselves: report those to their makers.
+
+## How the code is checked
+
+On every pull request and every week, CodeQL reads the code for known kinds of vulnerability, and govulncheck looks for known vulnerabilities in Go and the modules that the program actually reaches. Dependabot proposes updates to the dependencies, at once when one has a known vulnerability. Every release has a `SHA256SUMS` to check its downloads against (`sha256sum -c SHA256SUMS`); the updater checks each file against it, and against GitHub's own digest of the file, before installing it.

@@ -84,6 +84,14 @@ go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12    # after changing .g
 
 CI runs `lint` (with actionlint), `test` (with `make e2e`), `cross`, the desktop build on Linux, macOS and Windows, and the Docker image, on every pull request. The S3 signing tests use the examples published in the AWS documentation.
 
+The **security** workflow runs on every pull request, on `main`, and every Monday:
+- **CodeQL** reads the Go code, the UI's JavaScript and the workflows for known kinds of vulnerability.
+- **govulncheck** reports the known vulnerabilities, in Go itself and in the modules, that the code actually reaches.
+
+Their findings are code scanning alerts in the Security tab, and GitHub marks a pull request that brings a new serious one. Treat an alert as a bug: fix it, or dismiss it in the Security tab saying why it does not apply.
+
+**Dependabot** opens one pull request a week per kind of dependency, and one at once for a dependency with a known vulnerability. Go modules come as `fix(deps): …`, so once merged they go out in the next bug-fix release; GitHub Actions and the Docker base images come as `ci: …` and `build: …`.
+
 Unit tests sit beside the code (`*_test.go`); a change to the API wants a case in `tests/e2e/test_api.py`. Code for one system goes in `*_windows.go` with an `*_other.go` or `*_unix.go` beside it, so every build still compiles; the desktop CI jobs and `make cross` catch it if not.
 
 ## Conventions
