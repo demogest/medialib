@@ -164,6 +164,8 @@ A library set up through rclone keeps working. **Manage libraries → ⋯ → Re
 - Files from a bucket or a folder are served sandboxed: an HTML or SVG file opened in a tab never runs as part of medialib. No page of medialib can be framed by another site. A browser that may only watch is not told local paths.
 - Credentials live in `config.json`: anyone who can read that file can use your store, so keep it out of backups you share, or use `secret_key_env`.
 
+Found a security problem? Please report it privately, as [SECURITY.md](SECURITY.md) explains, not in a public issue.
+
 ## Contributing
 
 Building from source, the code's layout, tests, conventions and how releases are made: [CONTRIBUTING.md](CONTRIBUTING.md). Who the app is for and how its interface decides things: [docs/DESIGN.md](docs/DESIGN.md). Coding agents: [AGENTS.md](AGENTS.md).

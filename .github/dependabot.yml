@@ -1,0 +1,26 @@
+# Dependabot: one pull request a week per kind of dependency, with every update of that kind in it. It also opens a
+# pull request at once for a dependency with a known vulnerability (once Dependabot security updates are on in the
+# repository's settings).
+#
+# Go modules go into the program, so their pull requests are titled "fix(deps): ..." and, once merged, go out in the
+# next automatic bug-fix release (CONTRIBUTING.md, Releasing). The others change only CI and the container build.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    commit-message: { prefix: "fix(deps)" }
+    groups:
+      go-modules: { patterns: ["*"] }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    commit-message: { prefix: "ci" }
+    groups:
+      actions: { patterns: ["*"] }
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    commit-message: { prefix: "build" }
+    groups:
+      docker: { patterns: ["*"] }
