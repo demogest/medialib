@@ -1,46 +1,80 @@
 # Builds every download and publishes them as one GitHub release, with notes and checksums.
 #
-# Pushing a v* tag releases it. So does running the workflow by hand (Actions > release > Run workflow) on main with
-# "publish" ticked: the release and its tag are made on the commit the run built. Without "publish" a run by hand is a
-# dry run: it builds everything and writes the notes and checksums, keeps them as the run's artifacts and shows the
-# notes on the run's page, but publishes nothing.
+# Three ways to release:
+#   - Change VERSION on main (a pull request that bumps it): the release of that version is made by itself, tagged on
+#     the commit that brought it. A VERSION that is released already makes nothing.
+#   - Push a v* tag.
+#   - Run the workflow by hand (Actions > release > Run workflow) on main with "publish" ticked.
+# A run by hand without "publish" is a dry run: it builds everything and writes the notes and checksums, keeps them as
+# the run's artifacts and shows the notes on the run's page, but publishes nothing.
 name: release
 on:
   push:
     tags: ["v*"]
+    branches: [main]
+    paths: [VERSION] # (tags are not filtered by paths)
   workflow_dispatch:
     inputs:
       version:
-        description: "Version, e.g. v3.2.0"
+        description: "Version, e.g. v3.3.0"
         required: true
         default: v0.0.0-dryrun
       publish:
         description: "Publish it: tag main's commit with the version and release it (otherwise a dry run)"
         type: boolean
         default: false
-# One run per version at a time: a second one waits, then finds the version released and stops at the check.
+# One release at a time: a second waits, then finds its version released and stops at the check. Dry runs keep out of
+# its way.
 concurrency:
-  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+  group: ${{ (github.event_name == 'push' || inputs.publish) && 'release' || format('release-dryrun-{0}', github.run_id) }}
 permissions:
   contents: read
-env:
-  VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
 jobs:
-  # A release by hand is checked before anything is built: from main, a plain version number, not released yet.
+  # What this run makes, decided before anything is built: the version, whether it is published, whether there is
+  # anything to build at all. A release is only ever made from main (or a pushed tag), of a plain vX.Y.Z version that
+  # has no tag yet.
   check:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.what.outputs.version }}
+      publish: ${{ steps.what.outputs.publish }}
+      build: ${{ steps.what.outputs.build }}
     steps:
       - uses: actions/checkout@v5
-      - if: github.event_name == 'workflow_dispatch' && inputs.publish
+      - id: what
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
         run: |
-          [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::releases are made from main, not $GITHUB_REF"; exit 1; }
-          echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::$VERSION is not a version like v3.2.0"; exit 1; }
-          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null; then
-            echo "::error::$VERSION is already tagged"; exit 1
+          set -eu
+          tagged=false
+          case "$EVENT:$GITHUB_REF" in
+            push:refs/tags/*) version=$GITHUB_REF_NAME publish=true tagged=true ;;
+            push:*) version=v$(tr -d ' \t\r\n' < VERSION) publish=true ;;
+            *) version=$INPUT_VERSION publish=$INPUT_PUBLISH ;;
+          esac
+          build=true
+          if [ "$publish" = true ] && [ "$tagged" = false ]; then
+            [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::releases are made from main, not $GITHUB_REF"; exit 1; }
+            echo "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::$version is not a version like v3.3.0"; exit 1; }
+            if git ls-remote --exit-code --tags origin "refs/tags/$version" >/dev/null; then
+              if [ "$EVENT" = push ]; then
+                echo "::notice::$version is released already: nothing to do"
+                publish=false build=false
+              else
+                echo "::error::$version is already tagged"; exit 1
+              fi
+            fi
           fi
+          echo "version=$version publish=$publish build=$build"
+          { echo "version=$version"; echo "publish=$publish"; echo "build=$build"; } >> "$GITHUB_OUTPUT"
   server:
     needs: check
+    if: needs.check.outputs.build == 'true'
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -51,7 +85,10 @@ jobs:
         with: { name: server, path: dist/*, if-no-files-found: error }
   windows:
     needs: check
+    if: needs.check.outputs.build == 'true'
     runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -67,12 +104,15 @@ jobs:
             dist/medialib-desktop-windows-*.zip
   desktop:
     needs: check
+    if: needs.check.outputs.build == 'true'
     strategy:
       matrix:
         include:
           - { os: ubuntu-latest, name: linux-amd64 }
           - { os: macos-latest, name: darwin-arm64 }
     runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -85,19 +125,24 @@ jobs:
         with: { name: "desktop-${{ matrix.name }}", path: dist/*, if-no-files-found: error }
   # Only once every build has succeeded: a release is never published with some of its files missing.
   publish:
-    needs: [server, windows, desktop]
+    needs: [check, server, windows, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      PUBLISH: ${{ needs.check.outputs.publish }}
     steps:
       - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
-      # actions/checkout can leave an annotated tag as a plain one, which would lose its message for the notes
-      - if: github.event_name == 'push'
-        run: git fetch --force origin "refs/tags/$VERSION:refs/tags/$VERSION"
-      # a release by hand: tagged here for the notes, and on GitHub along with the release below
-      - if: github.event_name == 'workflow_dispatch' && inputs.publish
-        run: git tag "$VERSION" "$GITHUB_SHA"
+      # A pushed tag: actions/checkout can leave an annotated tag as a plain one, which would lose its message for the
+      # notes. Any other release is tagged here, for the notes, and on GitHub along with the release below.
+      - run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            git fetch --force origin "refs/tags/$VERSION:refs/tags/$VERSION"
+          elif [ "$PUBLISH" = true ]; then
+            git tag "$VERSION" "$GITHUB_SHA"
+          fi
       - uses: actions/download-artifact@v6
         with: { path: build, merge-multiple: true }
       # the builds' own outputs become medialib-<version>-<os>-<arch>[-<kind>] archives (scripts/package-release.sh)
@@ -108,7 +153,7 @@ jobs:
           sh scripts/release-notes.sh "$VERSION" dist > release-notes.md
           { echo "# $VERSION"; echo; cat release-notes.md; echo; echo '```'; cat dist/SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           ls -l dist
-      - if: github.event_name == 'push' || inputs.publish
+      - if: env.PUBLISH == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.VERSION }}
@@ -116,7 +161,7 @@ jobs:
           body_path: release-notes.md
           files: dist/*
           fail_on_unmatched_files: true
-      - if: github.event_name != 'push' && !inputs.publish
+      - if: env.PUBLISH != 'true'
         uses: actions/upload-artifact@v5
         with:
           name: release-preview
