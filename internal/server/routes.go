@@ -47,20 +47,14 @@ func (a *App) Handler(web fs.FS) http.Handler {
 	def("GET /{$}", open, func(c *Ctx) (any, error) { return nil, serveWeb(c, web, "index.html") })
 	def("GET /static/{path...}", open, func(c *Ctx) (any, error) { return nil, serveWeb(c, web, c.P("path")) })
 	def("GET /thumbs/{lib}/{name}", open, a.thumb)
-	def("GET /api/system", open, func(c *Ctx) (any, error) { return a.SystemInfo(), nil })
+	def("GET /api/system", open, func(c *Ctx) (any, error) { return a.SystemInfo(c.R), nil })
 
 	// libraries
 	def("GET /api/libraries", open, a.listLibraries)
 	def("GET /api/library", open, a.getLibrary)
 	def("GET /api/search", open, a.searchMedia)
 	def("GET /api/index", open, func(c *Ctx) (any, error) { return map[string]any{"jobs": a.Jobs()}, nil })
-	def("GET /api/players", open, func(c *Ctx) (any, error) {
-		list := make([]map[string]any, len(a.Players))
-		for i, p := range a.Players {
-			list[i] = map[string]any{"id": p.ID, "name": p.Name}
-		}
-		return map[string]any{"players": list, "default": a.Cfg.Settings().DefaultPlayer}, nil
-	})
+	def("GET /api/players", open, func(c *Ctx) (any, error) { return a.playerList(), nil })
 	def("GET /api/playlist.m3u8", open, a.playlist)
 	def("GET /media/{rest...}", open, a.media)
 	def("POST /api/play", machine, a.play)
@@ -281,6 +275,7 @@ func (a *App) Handler(web fs.FS) http.Handler {
 	def("DELETE /api/tasks", private, func(c *Ctx) (any, error) { a.Tasks.Dismiss(""); return map[string]any{"ok": true}, nil })
 	def("DELETE /api/tasks/{id}", private, func(c *Ctx) (any, error) { a.Tasks.Dismiss(c.P("id")); return map[string]any{"ok": true}, nil })
 
+	a.settingsRoutes(def)
 	return mux
 }
 
@@ -538,8 +533,22 @@ func serveLocalFile(c *Ctx, p string) error {
 		writeText(c.W, 404, "file not reachable")
 		return nil
 	}
-	http.ServeContent(c.W, c.R, path.Base(strings.ReplaceAll(p, `\`, "/")), st.ModTime(), f)
+	name := path.Base(strings.ReplaceAll(p, `\`, "/"))
+	inert(c.W.Header(), mime.TypeByExtension(path.Ext(name)))
+	http.ServeContent(c.W, c.R, name, st.ModTime(), f)
 	return nil
+}
+
+// inert keeps a file served from a bucket or a folder from acting as part of medialib: opened in a tab, an HTML or
+// SVG file someone put in a bucket would otherwise run its scripts as this site, with the run of its API. It renders
+// in a sandbox of its own instead, scripts off; nothing is guessed from the content. Pictures, video and sound in the
+// page are unaffected (the policy only applies to a document), and so is a PDF, which the browser's viewer would not
+// show in a sandbox (and whose scripts never run as this site anyway).
+func inert(h http.Header, contentType string) {
+	h.Set("X-Content-Type-Options", "nosniff")
+	if !strings.HasPrefix(strings.ToLower(contentType), "application/pdf") {
+		h.Set("Content-Security-Policy", "sandbox")
+	}
 }
 
 func (a *App) play(c *Ctx) (any, error) {
@@ -575,6 +584,7 @@ func (a *App) play(c *Ctx) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	a.recordPlay(lib, recs[0])
 	return map[string]any{"ok": true, "player": name, "count": len(recs)}, nil
 }
 
@@ -652,7 +662,15 @@ func (a *App) testDraft(c *Ctx) (any, error) {
 }
 
 func (a *App) pickFolder(c *Ctx) (any, error) {
-	picked, err := pickFolder()
+	b, err := c.Body()
+	if err != nil {
+		return nil, err
+	}
+	title := b.Str("title")
+	if title == "" || len(title) > 120 {
+		title = "Choose a media folder"
+	}
+	picked, err := pickFolder(title)
 	if err != nil {
 		return nil, fail(500, "No folder dialog available here; type the path instead.")
 	}
@@ -895,6 +913,7 @@ func (a *App) object(c *Ctx) (any, error) {
 	}
 	out := c.W.Header()
 	out.Set("Content-Type", ct)
+	inert(out, ct)
 	for _, name := range []string{"Content-Length", "Content-Range", "ETag", "Last-Modified"} {
 		if v := h.Get(name); v != "" {
 			out.Set(name, v)

@@ -50,8 +50,15 @@ Name: "{autodesktop}\Media Library"; Filename: "{app}\medialib.exe"; AppUserMode
 [Run]
 Filename: "winget.exe"; Parameters: "install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements"; StatusMsg: "Installing ffmpeg..."; Flags: runhidden waituntilterminated; Tasks: ffmpeg
 Filename: "{app}\medialib.exe"; Description: "Start Media Library"; Flags: nowait postinstall skipifsilent
+; An update from inside the app runs this setup silently with /relaunch=yes: the app starts again once it is installed.
+Filename: "{app}\medialib.exe"; Flags: nowait; Check: RelaunchAfterUpdate
 
 [Code]
+function RelaunchAfterUpdate: Boolean;
+begin
+  Result := WizardSilent and (CompareText(ExpandConstant('{param:relaunch|no}'), 'yes') = 0);
+end;
+
 function NeedFfmpeg: Boolean;
 var
   Dummy: Integer;

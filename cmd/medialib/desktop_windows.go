@@ -43,6 +43,9 @@ const (
 // A desktop build opens its window when it is started without arguments (a double click).
 const defaultCommand = "desktop"
 
+// desktopBuild: this build updates from the desktop downloads.
+const desktopBuild = true
+
 //go:embed winres/icon-256.png
 var icon256 []byte
 
@@ -62,6 +65,7 @@ var (
 	setLongP = user32.NewProc("SetWindowLongPtrW")
 	callProc = user32.NewProc("CallWindowProcW")
 	sendMsg  = user32.NewProc("SendMessageW")
+	postMsg  = user32.NewProc("PostMessageW")
 	metrics  = user32.NewProc("GetSystemMetrics")
 	dpiSys   = user32.NewProc("GetDpiForSystem")
 	monFrom  = user32.NewProc("MonitorFromRect")
@@ -188,9 +192,9 @@ func runDesktop(url string) error {
 	}
 	// Paint the web view in the page's own colour while the first page loads, so there is no white flash at night.
 	if os.Getenv("WEBVIEW2_DEFAULT_BACKGROUND_COLOR") == "" {
-		bg := "FFF5F6F8"
+		bg := "FFF6F7F9"
 		if systemUsesDarkApps() {
-			bg = "FF0F1114"
+			bg = "FF0B0D11"
 		}
 		os.Setenv("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", bg)
 	}
@@ -227,6 +231,7 @@ func runDesktop(url string) error {
 	subclass(hwnd)
 	w.SetSize(int(width/2), int(height/2), webview2.HintMin) // never smaller than half the first size
 
+	closeWindow = func() { postMsg.Call(hwnd, 0x0010, 0, 0) } // WM_CLOSE: the window remembers its place, as when closed by hand
 	_ = w.Bind("__medialib_open", func(u string) { openExternal(u) })
 	_ = w.Bind("__medialib_chrome", func(r, g, b int) { colorTitleBar(hwnd, r, g, b) })
 	w.Init(pageScript)

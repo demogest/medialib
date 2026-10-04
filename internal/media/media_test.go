@@ -202,7 +202,7 @@ func TestLocalSourceWarnsAboutCaseTwins(t *testing.T) {
 
 func TestStoreReloadsWhenTheIndexChanges(t *testing.T) {
 	cfg, _ := config.Load(t.TempDir())
-	lib := cfg.Libraries()[0]
+	lib := config.Library{ID: "videos", Name: "Videos", Type: "local", Path: t.TempDir()}
 	store := NewStore(cfg, lib)
 	snap, err := store.Get()
 	if err != nil || len(snap.Data.Items) != 0 {
@@ -221,7 +221,7 @@ func TestStoreReloadsWhenTheIndexChanges(t *testing.T) {
 // On FAT and exFAT two saves within 2 seconds get the same modification time; the store must still see the second.
 func TestStoreReloadsWhenTheTimeStaysTheSame(t *testing.T) {
 	cfg, _ := config.Load(t.TempDir())
-	lib := cfg.Libraries()[0]
+	lib := config.Library{ID: "videos", Name: "Videos", Type: "local", Path: t.TempDir()}
 	store := NewStore(cfg, lib)
 	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	recs := map[string]Item{}

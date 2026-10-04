@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,7 +82,15 @@ type Settings struct {
 	Password      string
 	ThumbQuality  int // WebP quality of new thumbnails, 1-100 (0: the default)
 	AutoIndex     int // minutes between automatic indexing passes over every library while serving (0: off)
+	// AutoIndexEnv is true when MEDIALIB_AUTO_INDEX sets AutoIndex, which config.json and the UI then cannot change.
+	AutoIndexEnv  bool
+	HiddenPlayers []string // ids of detected players the user removed from the list
+	Updates       string   // off | notify | auto (see UpdateModes)
 }
+
+// UpdateModes are the values of "updates": never look for a new version, say when there is one, or install it
+// by itself (the desktop app; a server only tells).
+var UpdateModes = []string{"off", "notify", "auto"}
 
 type data struct {
 	Rclone        string       `json:"rclone"`
@@ -97,6 +106,9 @@ type data struct {
 	Password      string       `json:"password,omitempty"`
 	ThumbQuality  int          `json:"thumb_quality,omitempty"`
 	AutoIndex     int          `json:"auto_index,omitempty"`
+	CacheDir      string       `json:"cache_dir,omitempty"`
+	HiddenPlayers []string     `json:"hidden_players,omitempty"`
+	Updates       string       `json:"updates,omitempty"`
 }
 
 // Config is config.json held in memory. It is safe for concurrent use; read it through the accessors.
@@ -107,15 +119,12 @@ type Config struct {
 	home  string
 }
 
+// defaultData is a config with nothing set up: the first run asks which folders to add (see Suggestions) rather
+// than starting on a library of a folder that may not exist.
 func defaultData() data {
-	videos := "~/Videos"
-	if runtime.GOOS == "windows" {
-		videos = `%USERPROFILE%\Videos`
-	}
 	return data{
 		Rclone: "rclone", FFmpeg: "ffmpeg", FFprobe: "ffprobe", Port: 8766, DefaultPlayer: "mpv",
-		Players: []Player{}, Active: "videos", Connections: []Connection{},
-		Libraries: []Library{{ID: "videos", Name: "Videos", Type: "local", Path: videos}},
+		Players: []Player{}, Connections: []Connection{}, Libraries: []Library{},
 	}
 }
 
@@ -125,8 +134,19 @@ func New(home string) *Config { return &Config{d: defaultData(), home: home} }
 // Home is the folder holding config.json and cache/.
 func (c *Config) Home() string { return c.home }
 
-// CacheDir is where indexes and thumbnails live.
-func (c *Config) CacheDir() string { return filepath.Join(c.home, "cache") }
+// CacheDir is where indexes and thumbnails live: "cache_dir" in config.json, else cache/ beside it.
+func (c *Config) CacheDir() string {
+	c.mu.RLock()
+	dir := c.d.CacheDir
+	c.mu.RUnlock()
+	if dir != "" {
+		return filepath.Clean(ExpandVars(dir))
+	}
+	return c.DefaultCacheDir()
+}
+
+// DefaultCacheDir is the cache folder when "cache_dir" is not set.
+func (c *Config) DefaultCacheDir() string { return filepath.Join(c.home, "cache") }
 
 // Path is the config file.
 func (c *Config) Path() string { return filepath.Join(c.home, "config.json") }
@@ -170,9 +190,6 @@ func Load(home string) (*Config, error) {
 			legacy = true
 		}
 	}
-	if len(c.d.Libraries) == 0 {
-		c.d.Libraries = defaultData().Libraries
-	}
 	if legacy || !hasLibs {
 		if err := c.save(); err != nil {
 			return nil, err
@@ -184,6 +201,9 @@ func Load(home string) (*Config, error) {
 
 // adoptOldCache moves the cache layout from before libraries existed (cache/library.json + cache/thumbs).
 func (c *Config) adoptOldCache() {
+	if len(c.d.Libraries) == 0 {
+		return
+	}
 	cache := c.CacheDir()
 	first := c.LibDir(c.d.Libraries[0])
 	old := filepath.Join(cache, "library.json")
@@ -209,6 +229,7 @@ func (c *Config) fromMap(m map[string]json.RawMessage) error {
 		"rclone": &d.Rclone, "ffmpeg": &d.FFmpeg, "ffprobe": &d.FFprobe, "port": &d.Port, "default_player": &d.DefaultPlayer,
 		"players": &d.Players, "active": &d.Active, "connections": &d.Connections, "libraries": &d.Libraries,
 		"workers": &d.Workers, "password": &d.Password, "thumb_quality": &d.ThumbQuality, "auto_index": &d.AutoIndex,
+		"cache_dir": &d.CacheDir, "hidden_players": &d.HiddenPlayers, "updates": &d.Updates,
 	}
 	if _, ok := m["libraries"]; ok {
 		d.Libraries = nil
@@ -231,6 +252,9 @@ func (c *Config) fromMap(m map[string]json.RawMessage) error {
 	}
 	if d.Connections == nil {
 		d.Connections = []Connection{}
+	}
+	if d.Libraries == nil {
+		d.Libraries = []Library{}
 	}
 	for i := range d.Libraries {
 		if d.Libraries[i].Type == "" {
@@ -273,8 +297,8 @@ func (c *Config) save() error {
 	return os.Rename(tmp, c.Path())
 }
 
-var keyOrder = []string{"rclone", "ffmpeg", "ffprobe", "port", "default_player", "players", "active", "connections", "libraries", "workers",
-	"thumb_quality", "auto_index", "password"}
+var keyOrder = []string{"rclone", "ffmpeg", "ffprobe", "port", "default_player", "players", "hidden_players", "active", "connections",
+	"libraries", "workers", "thumb_quality", "auto_index", "cache_dir", "updates", "password"}
 
 func marshalOrdered(m map[string]json.RawMessage) ([]byte, error) {
 	var sb strings.Builder
@@ -321,14 +345,19 @@ func (c *Config) Settings() Settings {
 	if env := os.Getenv("MEDIALIB_PASSWORD"); env != "" {
 		pw = env
 	}
-	auto := c.d.AutoIndex
+	auto, autoEnv := c.d.AutoIndex, false
 	if env := os.Getenv("MEDIALIB_AUTO_INDEX"); env != "" {
 		if n, err := strconv.Atoi(strings.TrimSpace(env)); err == nil {
-			auto = n
+			auto, autoEnv = n, true
 		}
 	}
+	updates := c.d.Updates
+	if !slices.Contains(UpdateModes, updates) {
+		updates = "notify"
+	}
 	return Settings{Rclone: c.d.Rclone, FFmpeg: c.d.FFmpeg, FFprobe: c.d.FFprobe, Port: c.d.Port, DefaultPlayer: c.d.DefaultPlayer,
-		Players: append([]Player(nil), c.d.Players...), Workers: c.d.Workers, Password: pw, ThumbQuality: c.d.ThumbQuality, AutoIndex: max(0, auto)}
+		Players: append([]Player(nil), c.d.Players...), Workers: c.d.Workers, Password: pw, ThumbQuality: c.d.ThumbQuality,
+		AutoIndex: max(0, auto), AutoIndexEnv: autoEnv, HiddenPlayers: append([]string(nil), c.d.HiddenPlayers...), Updates: updates}
 }
 
 // Libraries returns a copy of the library list.
@@ -348,6 +377,9 @@ func (c *Config) Active() string {
 func (c *Config) activeLocked() string {
 	if l, ok := c.findLocked(c.d.Active); ok {
 		return l.ID
+	}
+	if len(c.d.Libraries) == 0 {
+		return ""
 	}
 	return c.d.Libraries[0].ID
 }
@@ -581,9 +613,6 @@ func (c *Config) RemoveLibrary(id string) (Library, error) {
 	if !ok {
 		return Library{}, Errorf("unknown library")
 	}
-	if len(c.d.Libraries) == 1 {
-		return Library{}, Errorf("The last library can't be removed.")
-	}
 	kept := c.d.Libraries[:0:0]
 	for _, l := range c.d.Libraries {
 		if l.ID != id {
@@ -592,7 +621,10 @@ func (c *Config) RemoveLibrary(id string) (Library, error) {
 	}
 	c.d.Libraries = kept
 	if c.d.Active == id {
-		c.d.Active = kept[0].ID
+		c.d.Active = ""
+		if len(kept) > 0 {
+			c.d.Active = kept[0].ID
+		}
 	}
 	return lib, c.save()
 }

@@ -3,6 +3,7 @@ package config
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -41,6 +42,17 @@ func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
 }
+
+// goos and lookPath are variables so tests can pretend to be another system.
+var (
+	goos     = runtime.GOOS
+	lookPath = func(name string) string {
+		if p, err := exec.LookPath(name); err == nil {
+			return p
+		}
+		return ""
+	}
+)
 
 var winVar = regexp.MustCompile(`%([^%]+)%`)
 

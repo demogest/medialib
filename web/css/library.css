@@ -181,3 +181,24 @@
   .gpath { flex: 1 1 100%; }  /* the path gets its own line; stats and Play sit below it */
   .pk-row { grid-template-columns: 1fr; }
 }
+
+/* folders as cards (the default way to browse) */
+.group.folders { margin-bottom: 30px; }
+.fgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--card-min, 230px)), 1fr)); gap: 22px 18px; }
+.fcard { display: grid; gap: 9px; padding: 0; border: 0; background: none; color: var(--text); text-align: left; min-width: 0; }
+.fcard:hover .tile-mosaic, .fcard:focus-visible .tile-mosaic { transform: translateY(-3px); box-shadow: var(--shadow-md), 0 0 0 1px var(--rule-strong); }
+.fcard .tile-mosaic { border-radius: 14px; }
+.banner-detail { margin-top: 2px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.banner.warn .banner-detail, .banner.error .banner-detail { color: inherit; opacity: .85; }
+
+/* phones: the toolbar wraps onto two rows (search on its own) instead of running over the page */
+@media (max-width: 860px) {
+  .lib-bar { flex-wrap: wrap; height: auto !important; min-height: 54px; padding: 8px 10px !important; row-gap: 8px; }
+  .lib-bar .search { order: 10; flex: 1 1 100%; max-width: none; }
+  .lib-bar .bar-spacer { display: none; }
+  .lib-switch { flex: 1 1 auto; min-width: 0; max-width: none; }
+  .lib-bar select { max-width: 104px; }
+  .types-label { display: none; }
+  .scopebar .actions { margin-left: 0; width: 100%; }
+  .scopebar .actions .btn.primary { flex: 1; justify-content: center; }
+}

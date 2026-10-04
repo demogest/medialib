@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/demogest/medialib/internal/config"
 	"github.com/demogest/medialib/internal/server"
+	"github.com/demogest/medialib/internal/update"
+	"github.com/demogest/medialib/internal/version"
 	"github.com/demogest/medialib/web"
 )
 
@@ -56,6 +59,8 @@ func cmdServe(cfg *config.Config, args []string, mode string) error {
 	}
 	app := server.NewApp(cfg, mode)
 	app.Loopback = isLoopbackHost(*host)
+	// Only the desktop app installs updates (and restarts itself); a server says there is one.
+	app.Updates = update.New(version.Version, desktopBuild, mode == "desktop", filepath.Join(cfg.Home(), "update"))
 	if os.Getenv("MEDIALIB_LOG") != "" {
 		app.Log = log.New(os.Stderr, "", log.LstdFlags)
 	}
@@ -65,24 +70,29 @@ func cmdServe(cfg *config.Config, args []string, mode string) error {
 	served := make(chan error, 1)
 	go func() { served <- app.Serve(ctx, ln, web.FS()) }()
 	autoIndex := cfg.Settings().AutoIndex
-	if autoIndex > 0 {
-		go app.AutoIndex(ctx, time.Duration(autoIndex)*time.Minute)
-	}
+	app.RunAutoIndex(ctx)
+	app.RunUpdates(ctx)
 	time.Sleep(50 * time.Millisecond) // Serve fills in the address
 	url := fmt.Sprintf("http://127.0.0.1:%d/", ln.Addr().(*net.TCPAddr).Port)
 
 	if mode == "desktop" {
+		app.Quit = func() {
+			if closeWindow != nil {
+				closeWindow()
+			}
+		}
 		err := runDesktop(url)
 		stop()
 		<-served
+		app.Updates.AtExit() // an update downloaded by itself is installed as the app closes
 		return err
 	}
 
 	fmt.Printf("Media library on %s\n", url)
-	fmt.Printf("  libraries:   %s\n", names(cfg.Libraries(), func(l config.Library) string { return l.Name }))
+	fmt.Printf("  libraries:   %s\n", orNone(names(cfg.Libraries(), func(l config.Library) string { return l.Name })))
 	fmt.Printf("  connections: %s\n", orNone(names(cfg.Connections(), func(c config.Connection) string { return c.Name })))
 	var ps []string
-	for _, p := range app.Players {
+	for _, p := range app.Players() {
 		ps = append(ps, p.Name)
 	}
 	fmt.Printf("  players:     %s\n", strings.Join(ps, ", "))

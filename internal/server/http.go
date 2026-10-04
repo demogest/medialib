@@ -154,6 +154,15 @@ func (b Body) BoolP(k string) *bool {
 	return nil
 }
 
+// IntP is nil when the key is missing or not a number.
+func (b Body) IntP(k string) *int {
+	if v, ok := b[k].(float64); ok {
+		n := int(v)
+		return &n
+	}
+	return nil
+}
+
 func (b Body) Strs(k string) []string {
 	var out []string
 	if l, ok := b[k].([]any); ok {
@@ -266,6 +275,9 @@ func (a *App) guard(class int, fn routeFn) http.HandlerFunc {
 		if a.Log != nil {
 			a.Log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.RequestURI())
 		}
+		// Never inside another site's frame (clicks it tricks the user into), and no type guessing.
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		// Refuse cross-site requests from web pages, and foreign Host names (DNS rebinding) on loopback.
 		if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 			writeText(w, 403, "forbidden")

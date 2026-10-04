@@ -1,17 +1,49 @@
-# medialib
+# Media Library
 
-A self-hosted media library and object-storage browser. Index your video folders (local disks, NAS shares, or buckets on any S3-compatible store) into a browsable grid of keyframe covers that opens in the player you already use, and manage the buckets themselves: browse, preview, upload, move, rename and delete.
+**Your video folders, as a wall of real covers. Click one, and it plays in the player you already use.**
 
-It runs as a **desktop app** on your own machine, or as a plain **web server** you deploy and open in any browser. The backend is a single Go binary with the UI inside it and a hand-written S3 client (no runtime to install); the frontend is plain ES modules with no build step.
+Point it at a folder, a NAS share or an S3 bucket. Media Library finds every video, makes covers from real keyframes, finds anything as you type (in any language, pinyin and typos included), and opens it in mpv, VLC, PotPlayer, IINA or whatever you like. No account, no cloud, no transcoding: your files stay where they are.
+
+<p align="center"><img src="docs/screenshots/home-dark.jpg" alt="Home: recently played, recently added and your libraries" width="880"></p>
+
+**[Download for Windows](https://github.com/demogest/medialib/releases/latest)** (installer or portable) · **[macOS](https://github.com/demogest/medialib/releases/latest)** (Apple silicon) · **[Linux](https://github.com/demogest/medialib/releases/latest)** · or run it as a **server** ([Docker](#web-server)) and open it from any browser.
+
+- **Set up in a minute.** The first run shows the folders on your computer that hold videos; one click adds one and makes its covers.
+- **Browse like a streaming app.** Home shows what you played and what is new; folders are cards with their own covers; hover a video to scrub through its keyframes.
+- **Find anything.** `Ctrl K` searches every library by name, folder, codec or resolution, with filters like `dur>1h` or `res>=4k`.
+- **Your player, your files.** Plays in your own player, or copies the real path or link. It updates itself, and works the same on Windows, macOS and Linux.
+- **Cloud storage too.** Browse and manage buckets on Amazon S3, Cloudflare R2, Backblaze B2, MinIO, RustFS and others, and make any bucket folder a library.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/library-light.jpg" alt="A library: its folders as cards"><br><sub>Folders as cards, light theme</sub></td>
+<td width="50%"><img src="docs/screenshots/folder-dark.jpg" alt="A folder of videos"><br><sub>A folder: hover a cover to scrub its keyframes</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/search-dark.jpg" alt="Search everything with Ctrl K"><br><sub>Search every library at once</sub></td>
+<td><img src="docs/screenshots/details-dark.jpg" alt="Details of a video"><br><sub>Every keyframe, codec, size and where the file is</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/settings-dark.jpg" alt="Settings"><br><sub>Players, scanning, tools and updates, all in Settings</sub></td>
+<td align="center"><img src="docs/screenshots/phone-home.jpg" alt="On a phone" width="220"><br><sub>On a phone, from the server</sub></td>
+</tr>
+</table>
+
+---
+
+A self-hosted media library and object-storage browser. It runs as a **desktop app** on your own machine, or as a plain **web server** you deploy and open in any browser. The backend is a single Go binary with the UI inside it and a hand-written S3 client (no runtime to install); the frontend is plain ES modules with no build step.
 
 ## What's in it
 
+**Home**: what you played lately and what is new in every library, one click from playing, and each library as a tile of its newest covers. On a first run it lists the folders on the computer that hold videos, to add with one click.
+
 **Library**
-- Folder tree, grouped cover grids with a floating full-path title, search, and sort by name, date, size or length.
+- Folders as cards with their own covers, or every video grouped by folder under a floating full-path title; a folder tree; search; sort by name, date, size or length.
 - **Search** (the box in the library, and `Ctrl+K` for every library at once): by name, folder, extension, codec or resolution (`hevc`, `4k`, `1080p`); Chinese, Japanese and any other script; Chinese by **pinyin**, full (`donghua`) or initials (`dh`); hiragana and katakana alike; fuzzy, so letters in order (`hldy`) and a slip of the keys (`holidya`) still find the file. Several words must all match. **Filters** narrow the results down, or list files on their own: `dur>1h`, `dur<20m` (a bare number is minutes), `size<2g`, `size>500mb` (a bare number is megabytes), `date>=2024-05`, `date=2024` (a year, month or day of the file's date), `res>=1080`, `res>=4k`, with `<`, `<=`, `>`, `>=` or `=`. Names, folders and their pinyin are stored in the index as soon as files are listed, so files an indexing run has not reached yet are searchable already. Results are ranked by relevance (the sort box offers *Best match* while you search); `Enter` in the palette plays the file in your player, `Ctrl+Enter` shows it in its folder.
 - Five real keyframes per video; hover a cover to scrub through them. The indexer reads an MP4's own sample index and fetches only the bytes of the chosen keyframes (about 1 to 4 MB per video, even over the network). H.264, HEVC and AV1; other formats fall back to ffmpeg seeking. Indexing is incremental and multithreaded.
 - Libraries can be a local folder, a NAS share, or a bucket folder read straight through the S3 API.
-- Click a cover to open it in mpv, VLC, PotPlayer, MPC or the system default. Play a whole folder as a playlist, or shuffled, or copy its stream URL.
+- Click a cover to open it in mpv, mpv.net, VLC, PotPlayer, MPC-HC, MPC-BE, IINA, SMPlayer, Celluloid, Haruna or the system default, whichever are installed (or any other you add in Settings). Play a whole folder as a playlist, or shuffled, or save it as a playlist file.
+- **Copy link** gives the file's real location: its path on this computer for a local library, a presigned link that works anywhere for a week for a bucket. **Save playlist…** writes an `.m3u8` of the same links that any player opens without medialib.
 - Click a file's name (or right-click → **Details**) for all its keyframes (arrow keys step through them), codec, frame rate, sound and full path. In a local library, **Show in Explorer** (Finder, or the file manager on Linux) opens its folder with the file selected.
 
 **Storage** (new in 2.0)
@@ -28,10 +60,14 @@ It runs as a **desktop app** on your own machine, or as a plain **web server** y
 
 **Activity**: copies, moves, deletes, size scans and indexing runs, with progress, cancel and a per-item error list.
 
+**Settings**: theme; automatic indexing, cover quality and files at once; the players (add one, remove one, pick the default, look again); your own ffmpeg, ffprobe or rclone; where the index and covers live (moved for you, with progress); and updates.
+
+**Updates**: medialib looks for a new release every few hours and says so in the sidebar and in Settings, with what's new. The desktop app installs it with **Update now** (or by itself as it closes, with *Install automatically*): a downloaded file is used only if it matches the release's `SHA256SUMS`, a Windows install runs the new setup and comes back, a portable copy replaces its own program. A server only tells; replace its program or image. Set Settings → Automatic updates to *Off* (`"updates": "off"`) to never ask GitHub.
+
 ## Requirements
 
 - `ffmpeg` and `ffprobe` on `PATH` (for covers)
-- To build from source: Go 1.25+. To build the desktop app also a C/C++ compiler (see below)
+- To build from source: Go 1.26+. To build the desktop app also a C/C++ compiler (see below)
 - Optional: `rclone`, only for older libraries that still read through an rclone remote
 
 ## Three ways to run it
@@ -97,7 +133,7 @@ medialib index --library nas-videos
 medialib index --all                                   # every library, one after another (for cron)
 ```
 
-Connect a store from the **Connect** page (or the command line), then browse it under **Storage**, or add a bucket folder as a library with **Library → Add a library → Bucket (S3)**.
+Connect a store from the **Connections** page (or the command line), then browse it under **Storage**, or add a bucket folder as a library with **Library → Add a library → Bucket (S3)**.
 
 A library that was set up through rclone keeps working. **Library → Manage → ⋯ → Read directly over S3** switches it to the S3 API without re-indexing, and removes the rclone process from every request.
 
@@ -109,9 +145,12 @@ A library that was set up through rclone keeps working. **Library → Manage →
 |---|---|
 | `connections` | `{"id", "name", "provider", "endpoint", "region", "access_key", "secret_key" or "secret_key_env", "addressing": "path"/"virtual"/"auto", "verify_tls", "default_bucket"}` |
 | `libraries` | `{"type": "local", "path"}`, `{"type": "s3", "connection", "bucket", "prefix"}`, or the older `{"type": "rclone", "remote", "bucket", "prefix"}` |
-| `players` | Extra players, listed before the auto-detected ones. `title_arg` passes the file name as the window title; `args` is a list of extra command-line arguments for every launch (for mpv, `["--demuxer-max-bytes=256MiB"]` keeps its read-ahead small). |
+| `players` | Players added by hand (Settings → Players → Add a player), listed before the auto-detected ones; one with the id of a detected player takes its place. `title_arg` passes the file name as the window title; `args` is a list of extra command-line arguments for every launch (for mpv, `["--demuxer-max-bytes=256MiB"]` keeps its read-ahead small). |
+| `hidden_players` | Ids of detected players removed from the list (Settings brings them back). |
 | `default_player` | Player id used until you pick one in the UI |
-| `rclone`, `ffmpeg`, `ffprobe` | Executable paths, if they aren't on `PATH` |
+| `rclone`, `ffmpeg`, `ffprobe` | Executable paths, if they aren't on `PATH`. Besides `PATH`, medialib looks where package managers put them (Homebrew, winget, Scoop, Chocolatey). |
+| `cache_dir` | Where indexes and thumbnails live, if not in `cache/` beside `config.json`. Change it in Settings, which moves them. |
+| `updates` | `"off"`, `"notify"` (the default: say when there is a new version) or `"auto"` (the desktop app installs it as it closes). |
 | `workers` | Files indexed at once. The default depends on the CPU count and the library type. |
 | `thumb_quality` | Quality (1 to 100) of new thumbnails, which are AVIF when ffmpeg can write it, else WebP. Default 65; lower is smaller. `medialib compact` converts older thumbnails. |
 | `auto_index` | Minutes between automatic indexing passes over every library while medialib runs. Default 0 (off); `MEDIALIB_AUTO_INDEX` takes precedence. |
@@ -130,6 +169,7 @@ internal/
   tasks/            background tasks with progress and cancel
   media/            library sources (local, S3, rclone), MP4 sample-index parsing, keyframes, indexing, index store
   players/          finding players, opening media in them, bringing the window to the front (Windows)
+  update/           new releases: check, download, verify against SHA256SUMS, install
   server/           HTTP server and JSON API, access rules
 web/                the UI (ES modules; css/, js/lib/, js/views/), embedded into the binary by web/embed.go
 tests/e2e/          the whole API against a mock S3, and a disposable demo
@@ -175,5 +215,7 @@ Push a tag: `git tag -a v3.2.0 -m "medialib 3.2.0" && git push origin v3.2.0`. T
 ## Security
 
 The server listens on `127.0.0.1` only and refuses cross-site requests and foreign `Host` headers. Everything that changes anything, and everything that touches your object stores (browsing included), is accepted only from the local machine, even if you start the server with `--host 0.0.0.0` to stream your libraries to other devices, unless a password is set and the request carries it. A request that arrives through a reverse proxy (`X-Forwarded-For` and friends) never counts as local. Changing requests also need a custom `X-Medialib` header, which web pages on other sites cannot send.
+
+Files from a bucket or a folder are served with `Content-Security-Policy: sandbox` and `nosniff`: an HTML or SVG file opened in a tab renders in a sandbox of its own, never as part of medialib with access to its API. No page of medialib can be framed by another site. A browser on another computer that may only watch is not told local paths (the settings and index folders, where players and tools are).
 
 Credentials live in `config.json`. Anyone who can read that file can use your store, so keep it out of backups you share, or use `secret_key_env`. The API never sends a secret back to the browser.

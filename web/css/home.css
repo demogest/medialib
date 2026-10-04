@@ -1,0 +1,87 @@
+/* Home: the shelves of recently played and added, the library tiles, and the first-run guide. */
+.home { max-width: 1440px; }
+.home-head { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; margin-bottom: 8px; }
+.home-head h1 { margin: 0; font-size: clamp(1.7rem, 2.6vw, 2.2rem); font-weight: 760; letter-spacing: -.025em; }
+.home-head p { margin: 4px 0 0; }
+.home-head .actions { margin-left: auto; }
+.home-hint { display: flex; align-items: center; gap: 8px; margin: 18px 2px; }
+
+.scan-banner {
+  display: flex; align-items: center; gap: 12px; margin: 18px 0 4px; padding: 12px 16px; border-radius: var(--radius);
+  background: var(--accent-soft); color: var(--text); text-decoration: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.scan-banner progress { width: 160px; height: 6px; accent-color: var(--accent); }
+
+/* shelves: a row of covers that scrolls sideways */
+.shelf { margin-top: 30px; }
+.shelf-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.shelf-head h2 { margin: 0; font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
+.shelf-nav { margin-left: auto; display: flex; gap: 4px; }
+.shelf-head .btn + .shelf-nav { margin-left: 0; }
+.shelf-head .btn { margin-left: auto; }
+.shelf-track {
+  display: grid; grid-auto-flow: column; grid-auto-columns: clamp(200px, 22vw, 272px); gap: 16px;
+  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; padding: 4px 4px 12px; margin: -4px -4px 0;
+  scrollbar-width: none;
+}
+.shelf-track::-webkit-scrollbar { display: none; }
+.shelf-card { display: grid; gap: 3px; padding: 0; border: 0; background: none; text-align: left; color: var(--text); scroll-snap-align: start; min-width: 0; }
+.shelf-cover { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--radius-sm); background: var(--surface-3); box-shadow: var(--shadow-sm); transition: transform .18s var(--ease), box-shadow .18s; }
+.shelf-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.shelf-card:hover .shelf-cover, .shelf-card:focus-visible .shelf-cover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
+.shelf-title { margin-top: 6px; font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shelf-sub { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.play-fab {
+  position: absolute; left: 50%; top: 50%; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%;
+  translate: -50% -50%; scale: .85; opacity: 0; background: rgb(255 255 255 / .92); color: #111; box-shadow: 0 6px 18px rgb(0 0 0 / .35);
+  transition: opacity .15s, scale .15s var(--ease);
+}
+.play-fab .ic { width: 20px; height: 20px; fill: currentColor; margin-left: 3px; }
+.shelf-card:hover .play-fab, .shelf-card:focus-visible .play-fab { opacity: 1; scale: 1; }
+
+/* library tiles */
+.lib-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 18px; }
+.lib-tile { display: grid; gap: 10px; padding: 0; border: 0; background: none; color: var(--text); text-decoration: none; text-align: left; }
+.tile-mosaic {
+  position: relative; display: grid; aspect-ratio: 16 / 9; overflow: hidden; gap: 2px; border-radius: var(--radius); background: var(--surface-3);
+  box-shadow: var(--shadow-sm); transition: transform .18s var(--ease), box-shadow .18s;
+}
+.tile-mosaic img { width: 100%; height: 100%; object-fit: cover; display: block; min-height: 0; }
+.tile-mosaic.n2 { grid-template-columns: 1fr 1fr; }
+.tile-mosaic.n3 { grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; }
+.tile-mosaic.n3 img:first-child { grid-row: span 2; }
+.tile-mosaic.n4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.lib-tile:hover .tile-mosaic, .lib-tile:focus-visible .tile-mosaic { transform: translateY(-3px); box-shadow: var(--shadow-md); }
+.lib-tile.add .tile-mosaic { background: none; box-shadow: none; border: 2px dashed var(--rule-strong); color: var(--muted); }
+.lib-tile.add:hover .tile-mosaic { border-color: var(--accent); color: var(--accent); }
+.tile-meta { display: grid; gap: 2px; min-width: 0; }
+.tile-name { display: flex; align-items: center; gap: 7px; font-weight: 680; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tile-name .ic { color: var(--muted); }
+.tile-status { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
+.tile-status.busy { color: var(--accent); }
+.tile-status.warn { color: var(--warn); }
+
+/* first run */
+.ob { max-width: 760px; margin: 0 auto; padding-top: min(6vh, 48px); }
+.ob-hero { text-align: center; margin-bottom: 28px; }
+.ob-hero h1 { margin: 0 0 10px; font-size: clamp(1.7rem, 3.4vw, 2.3rem); font-weight: 780; letter-spacing: -.03em; }
+.ob-hero .lede { max-width: 56ch; margin: 0 auto; color: var(--muted); font-size: 1.04rem; }
+.ob-card { margin-top: 16px; padding: 20px 22px; border: 1px solid var(--rule); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow-sm); }
+.ob-card h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 1.1rem; }
+.ob-card h2 .ic { color: var(--accent); }
+.ob-card.warn h2 .ic { color: var(--warn); }
+.ob-card p { margin: 0 0 12px; color: var(--text-2); }
+.ob-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.ob-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.ob-row.muted { background: none; padding-inline: 2px; }
+.ob-icon { display: grid; place-items: center; width: 38px; height: 38px; flex: none; border-radius: 10px; background: var(--accent-soft); color: var(--accent); }
+.ob-name { font-weight: 650; }
+.ob-path { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ob-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.ob-cmd { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-family: var(--mono); }
+.ob-cmd code { flex: 1; overflow-x: auto; white-space: nowrap; }
+.ob-done { display: flex; justify-content: center; margin-top: 24px; }
+.btn.big { height: 44px; padding: 0 22px; font-size: 15px; border-radius: 12px; }
+@media (max-width: 860px) { .ob-row .tag { display: none; } }
+@media (hover: none) { .shelf-nav { display: none; } }
+@media (max-width: 860px) { .home-head .actions .btn { height: 34px; } }

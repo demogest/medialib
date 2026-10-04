@@ -32,6 +32,9 @@ func setup(t *testing.T, loopback bool) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := cfg.AddLocalLibrary(t.TempDir(), "Videos"); err != nil { // a library to start from, id "videos"
+		t.Fatal(err)
+	}
 	app := NewApp(cfg, "server")
 	app.Loopback = loopback
 	web := fstest.MapFS{"index.html": {Data: []byte("<html>ui</html>")}, "js/main.js": {Data: []byte("export {}")}}
@@ -215,8 +218,11 @@ func TestLocalLibraryServesItsMediaWithRanges(t *testing.T) {
 	if rec := e.do("POST", "/api/libraries/remove", `{"id":"videos"}`); rec.Code != 200 {
 		t.Errorf("remove: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := e.do("POST", "/api/libraries/remove", `{"id":"clips"}`); rec.Code != 400 {
-		t.Errorf("the last library stays: %d", rec.Code)
+	if rec := e.do("POST", "/api/libraries/remove", `{"id":"clips"}`); rec.Code != 200 {
+		t.Errorf("the last library can go too: %d", rec.Code)
+	}
+	if got := decode(t, e.do("GET", "/api/libraries", "")); len(got["libraries"].([]any)) != 0 || got["active"] != "" {
+		t.Errorf("no libraries: %v", got)
 	}
 }
 
@@ -311,7 +317,7 @@ func TestAutoIndexKeepsReachableLibrariesUpToDate(t *testing.T) {
 		return id
 	}
 	a, b := add(here, "Here"), add(gone, "Gone")
-	if err := e.app.RemoveLibrary("videos"); err != nil { // the default library points at the real ~/Videos
+	if err := e.app.RemoveLibrary("videos"); err != nil { // only the two libraries of this test
 		t.Fatal(err)
 	}
 	if err := os.Remove(gone); err != nil { // an unplugged disk

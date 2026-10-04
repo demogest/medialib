@@ -9,6 +9,9 @@ import (
 // A desktop build opens its window when it is started without arguments (a double click).
 const defaultCommand = "desktop"
 
+// desktopBuild: this build updates from the desktop downloads.
+const desktopBuild = true
+
 func desktopPreflight() bool { return true }
 
 // runDesktop shows the UI in a native window: WKWebView on macOS, WebKitGTK on Linux (cgo). It returns when the
@@ -18,6 +21,7 @@ func runDesktop(url string) error {
 	defer w.Destroy()
 	w.SetTitle("Media Library")
 	w.SetSize(1360, 860, webview.HintNone)
+	closeWindow = func() { w.Dispatch(w.Terminate) }
 	w.Navigate(url)
 	w.Run()
 	return nil

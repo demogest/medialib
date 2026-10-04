@@ -50,3 +50,20 @@ details.advanced[open] summary { margin-bottom: 14px; }
 .set-row + .set-row { border-top: 1px solid var(--rule); }
 .set-name { font-weight: 600; }
 .set-path { max-width: 100%; overflow-wrap: anywhere; color: var(--muted); font-size: 12.5px; }
+.set-row > .grow { flex-basis: 220px; } /* on a phone the controls go under the text, not beside a sliver of it */
+.set-row .grow > .set-path { display: block; margin-top: 4px; }
+.set-row select { min-width: 170px; }
+.set-row .bad-text { font-size: 12.5px; margin-top: 2px; }
+.set-name .tag { margin-left: 8px; vertical-align: 1px; }
+.set-foot { gap: 8px; background: var(--surface-2); }
+.set-progress { width: 180px; accent-color: var(--accent); }
+.radio { flex: none; width: 18px; height: 18px; padding: 0; border: 2px solid var(--rule-strong); border-radius: 50%; background: var(--surface); }
+.radio[aria-checked="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 3px var(--surface); background: var(--accent); }
+.radio:not(:disabled):hover { border-color: var(--accent); }
+.radio:disabled { opacity: .4; }
+.notes { max-height: 60vh; overflow: auto; line-height: 1.55; }
+.notes h3 { margin: 4px 0 8px; font-size: 1rem; }
+.notes h4 { margin: 16px 0 6px; font-size: .95rem; }
+.notes ul { margin: 0 0 10px; padding-left: 20px; }
+.notes p { margin: 0 0 10px; }
+.notes code { font-family: var(--mono); font-size: 12.5px; }

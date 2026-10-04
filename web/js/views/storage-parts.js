@@ -42,7 +42,8 @@ export function linkItems(conn, bucket, key) {
     { head: 'Presigned link (works anywhere)' },
     presigned('Valid for 1 hour', 3600), presigned('Valid for 24 hours', 86400), presigned('Valid for 7 days', 7 * 86400),
     { sep: true },
-    { label: 'Through medialib (this computer only)', icon: 'server', onClick: () => copyText(location.origin + objectUrl(conn, bucket, key), 'Link') },
+    // An address on this server (it streams the object): of no use from the desktop app, whose address is its own.
+    ...(state.system?.mode === 'desktop' ? [] : [{ label: 'Through medialib (this computer only)', icon: 'server', onClick: () => copyText(location.origin + objectUrl(conn, bucket, key), 'Link') }]),
     { label: 's3:// address', icon: 'cloud', onClick: () => copyText(`s3://${bucket}/${key}`, 'Address') },
     { label: 'Object key', icon: 'copy', onClick: () => copyText(key, 'Key') },
   ];

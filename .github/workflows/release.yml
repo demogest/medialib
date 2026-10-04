@@ -30,7 +30,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - if: github.event_name == 'workflow_dispatch' && inputs.publish
         run: |
           [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::releases are made from main, not $GITHUB_REF"; exit 1; }
@@ -42,23 +42,23 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: { go-version: stable }
       # the Windows .exe files carry the version in their Properties > Details too
       - run: make winres cross VERSION="$VERSION"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with: { name: server, path: dist/*, if-no-files-found: error }
   windows:
     needs: check
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: { go-version: stable }
       - run: choco install innosetup -y --no-progress
       - run: powershell -NoProfile -File scripts/package-windows.ps1 -Version "$env:VERSION"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: windows
           if-no-files-found: error
@@ -74,14 +74,14 @@ jobs:
           - { os: macos-latest, name: darwin-arm64 }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: { go-version: stable }
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
       - run: sh scripts/build-desktop.sh dist/medialib-desktop-${{ matrix.name }}
         shell: bash
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with: { name: "desktop-${{ matrix.name }}", path: dist/*, if-no-files-found: error }
   # Only once every build has succeeded: a release is never published with some of its files missing.
   publish:
@@ -90,7 +90,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
       # actions/checkout can leave an annotated tag as a plain one, which would lose its message for the notes
       - if: github.event_name == 'push'
@@ -98,7 +98,7 @@ jobs:
       # a release by hand: tagged here for the notes, and on GitHub along with the release below
       - if: github.event_name == 'workflow_dispatch' && inputs.publish
         run: git tag "$VERSION" "$GITHUB_SHA"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with: { path: build, merge-multiple: true }
       # the builds' own outputs become medialib-<version>-<os>-<arch>[-<kind>] archives (scripts/package-release.sh)
       - name: Package, checksums and notes
@@ -117,7 +117,7 @@ jobs:
           files: dist/*
           fail_on_unmatched_files: true
       - if: github.event_name != 'push' && !inputs.publish
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: release-preview
           path: |
