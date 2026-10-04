@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/demogest/medialib/security/advisories/new
+    about: Privately, so it can be fixed before it is public (see SECURITY.md)
+  - name: Read the documentation
+    url: https://github.com/demogest/medialib#readme
+    about: Install, getting started, the server, the command line and every setting
