@@ -2,10 +2,10 @@
 # back into main (VERSION and the Windows version files, scripts/set-version.sh) so main says what was released last.
 #
 # Three ways to release:
-#   - Bug fixes go out by themselves, once a week, together: if main has any since the last release, the weekly run
-#     releases them as the next patch version (the last digit), or the next alpha or beta while a version is in one
+#   - Bug fixes go out by themselves, every other day, together: if main has any since the last release, the scheduled
+#     run releases them as the next patch version (the last digit), or the next alpha or beta while a version is in one
 #     (scripts/next-version.sh fix). A fix is a commit whose title starts with "Fix" ("Fix ...", "fix: ...",
-#     "fix(ui): ...") or whose pull request has the "bug" label. A week without one releases nothing.
+#     "fix(ui): ...") or whose pull request has the "bug" label. Two days without one release nothing.
 #   - Push a v* tag.
 #   - Run the workflow by hand (Actions > release > Run workflow) on main with "publish" ticked: it releases the
 #     version given, or the next one (patch, minor or major, or an alpha or beta of it), and tags main's commit with it.
@@ -18,7 +18,7 @@ on:
   push:
     tags: ["v*"]
   schedule:
-    - cron: "17 3 * * 1" # Mondays, 03:17 UTC
+    - cron: "17 3 */2 * *" # every other day (the odd days of the month), 03:17 UTC
   workflow_dispatch:
     inputs:
       bump:
