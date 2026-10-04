@@ -206,9 +206,9 @@ The signing tests use the examples published in the AWS documentation. The unit 
 
 ## Releasing
 
-Bug fixes are released by themselves. New features are released when you say so: push a tag, or run the release workflow by hand.
+Bug fixes are released by themselves, once a week, all together. New features are released when you say so: push a tag, or run the release workflow by hand.
 
-- **A bug fix reaching `main`** releases the next patch version, the last digit (3.3.0 → 3.3.1), by itself; while a version is in alpha or beta, the next one of those instead (3.4.0-beta.1 → 3.4.0-beta.2). A fix is a commit whose title starts with *Fix* (`Fix the cover cache…`, `fix: …`, `fix(ui): …`), or whose pull request has the **bug** label. Everything since the last release counts, so a fix is not missed when more lands before its release starts. Other pushes release nothing.
+- **Bug fixes, every Monday** (03:17 UTC): if `main` has any since the last release, they all go out as one new patch version, the last digit (3.3.0 → 3.3.1). While a version is in alpha or beta, they go out as the next one of those instead (3.4.0-beta.1 → 3.4.0-beta.2). Pushing fixes one by one makes no versions of its own, and a week without a fix releases nothing. A fix is a commit whose title starts with *Fix* (`Fix the cover cache…`, `fix: …`, `fix(ui): …`), or whose pull request has the **bug** label. A fix that cannot wait: run the workflow by hand with **patch**. The schedule is one line in `.github/workflows/release.yml`.
 - **Push a tag**: `git tag -a v3.4.0 -m "medialib 3.4.0" && git push origin v3.4.0`. A tag message that says more than a title leads the notes.
 - **Actions → release → Run workflow** on `main`, with **publish** ticked. It releases the next version (choose **patch**, **minor** or **major**, and **alpha** or **beta** for a pre-release of it), or exactly the **version** you type, and tags the commit it built. It refuses a version that is already tagged, or anything but `vX.Y.Z`, `vX.Y.Z-alpha.N` and `vX.Y.Z-beta.N`. Without **publish** it is a dry run: it builds everything and writes the notes and checksums (shown on the run's page and kept as artifacts) but publishes nothing.
 
