@@ -17,13 +17,13 @@ jobs:
     env:
       TAG: ${{ inputs.tag }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
       - run: git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
       - run: |
           sh scripts/release-notes.sh "$TAG" > release-notes.md
           cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag }}
           body_path: release-notes.md
