@@ -1,6 +1,6 @@
 # Contributing to Media Library
 
-This covers how the project is put together, how to build and test it, the conventions to follow and how releases are made. Security problems are reported privately, as [SECURITY.md](SECURITY.md) explains. For what the app does, see the [README](README.md). Before adding a screen, a button or a setting, read [docs/DESIGN.md](docs/DESIGN.md): who the app is for, how its features are ranked and the principles the interface follows.
+This covers how the project is put together, how to build and test it, the conventions to follow and how releases are made. Bugs and ideas go in [an issue](https://github.com/demogest/medialib/issues/new/choose) (each has a short form); security problems are reported privately, as [SECURITY.md](SECURITY.md) explains. Contributions are under the [MIT license](LICENSE), like the rest of the project. For what the app does, see the [README](README.md). Before adding a screen, a button or a setting, read [docs/DESIGN.md](docs/DESIGN.md): who the app is for, how its features are ranked and the principles the interface follows.
 
 ## Set up
 

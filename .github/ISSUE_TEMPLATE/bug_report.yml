@@ -1,0 +1,73 @@
+name: Something doesn't work
+description: A bug, a crash, or something that does not do what it says
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. **A security problem?** Please don't file it here: report it privately, as [SECURITY.md](https://github.com/demogest/medialib/blob/main/SECURITY.md) explains.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, and what medialib did. A screenshot helps.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      placeholder: |
+        1. Add a library of …
+        2. Open …
+        3. …
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings → About, or `medialib version`
+      placeholder: "3.3.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: how
+    attributes:
+      label: How you run it
+      options:
+        - Desktop app, installed (Windows setup)
+        - Desktop app, portable (Windows zip)
+        - Desktop app (macOS)
+        - Desktop app (Linux)
+        - Server (medialib serve)
+        - Docker
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Operating system and version; the browser too if the server is opened from another computer
+      placeholder: "Windows 11 24H2 / macOS 15 / Ubuntu 24.04, Firefox 140"
+  - type: dropdown
+    id: library
+    attributes:
+      label: Where the videos are
+      multiple: true
+      options:
+        - A folder on this computer
+        - A NAS share
+        - A bucket (S3, R2, MinIO, …)
+        - An rclone remote
+        - Not about a library
+  - type: textarea
+    id: logs
+    attributes:
+      label: Messages or logs
+      description: An error message, or the output of `MEDIALIB_LOG=1 medialib serve`. Remove passwords, keys and anything private first.
+      render: text

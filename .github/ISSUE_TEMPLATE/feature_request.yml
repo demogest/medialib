@@ -1,0 +1,21 @@
+name: An idea
+description: Something medialib could do, or do better
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you want to do
+      description: The situation and what gets in the way today. "I keep my series in one folder per season, and …" says more than "add a series view".
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you picture it working, if you have an idea
+  - type: textarea
+    id: instead
+    attributes:
+      label: What you do instead today
+      description: A workaround, another app, or nothing

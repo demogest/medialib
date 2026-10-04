@@ -168,4 +168,8 @@ Found a security problem? Please report it privately, as [SECURITY.md](SECURITY.
 
 ## Contributing
 
-Building from source, the code's layout, tests, conventions and how releases are made: [CONTRIBUTING.md](CONTRIBUTING.md). Who the app is for and how its interface decides things: [docs/DESIGN.md](docs/DESIGN.md). Coding agents: [AGENTS.md](AGENTS.md).
+Found a bug or have an idea? [Open an issue](https://github.com/demogest/medialib/issues/new/choose): there is a short form for each. Building from source, the code's layout, tests, conventions and how releases are made: [CONTRIBUTING.md](CONTRIBUTING.md). Who the app is for and how its interface decides things: [docs/DESIGN.md](docs/DESIGN.md). Coding agents: [AGENTS.md](AGENTS.md).
+
+## License
+
+[MIT](LICENSE).
