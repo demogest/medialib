@@ -13,8 +13,15 @@ export function toast(message, { kind = 'info', action, ms } = {}) {
   if (toastHost.parentNode !== topHost()) topHost().append(toastHost);
   const el = h('div.toast', { class: kind }, kind === 'ok' ? icon('check', 'sm') : kind === 'error' ? icon('alert', 'sm') : null, h('span', message));
   if (action) el.append(h('button.act', { type: 'button', onclick: () => { action.run(); el.remove(); } }, action.label));
+  el.append(h('button.icon-btn.small.toast-x', { type: 'button', 'aria-label': t('common.close'), onclick: () => el.remove() }, icon('x', 'sm')));
   toastHost.append(el);
-  setTimeout(() => el.remove(), ms ?? (kind === 'error' ? 6500 : 3000));
+  // It stays while the pointer or the keyboard is on it, so there is time to read it and press its button.
+  const wait = ms ?? (kind === 'error' ? 8000 : 3500);
+  let timer = setTimeout(() => el.remove(), wait);
+  const hold = () => clearTimeout(timer);
+  const go = () => { clearTimeout(timer); if (!el.matches(':hover, :focus-within')) timer = setTimeout(() => el.remove(), 2000); };
+  el.addEventListener('pointerenter', hold); el.addEventListener('focusin', hold);
+  el.addEventListener('pointerleave', go); el.addEventListener('focusout', go);
   return el;
 }
 export const toastError = (message, e) => toast(e ? t('ui.errorReason', { message, reason: e.message || e }) : message, { kind: 'error' });
@@ -154,4 +161,12 @@ export function showMenu({ anchor, x, y, items, align = 'left', onClose }) {
 export function contextMenu(e, items) {
   e.preventDefault();
   return showMenu({ x: e.clientX, y: e.clientY, items });
+}
+
+/** Where the browser may not write to the clipboard (a page over plain http on the network): the text, selected, to copy by hand. */
+export function copyByHand(text) {
+  const input = h('input.input.mono', { type: 'text', value: text, readOnly: true, spellcheck: 'false' });
+  modal({ title: t('ui.copyByHandTitle'), size: 'narrow', body: [h('p', t('ui.copyByHandText')), input], actions: [{ label: t('common.done'), primary: true }] });
+  input.focus();
+  input.select();
 }

@@ -4,11 +4,11 @@
 import { h, fill } from '../lib/dom.js';
 import { icon, logo } from '../lib/icons.js';
 import { del, get, post } from '../lib/api.js';
-import { ago, clock, resLabel, stem } from '../lib/fmt.js';
+import { ago, clock, keys, resLabel, stem } from '../lib/fmt.js';
 import { href, navigate } from '../lib/router.js';
 import { loadLibraries, loadSystem, on, pokeWatcher, running, state } from '../lib/state.js';
 import { store } from '../lib/store.js';
-import { contextMenu, toast, toastError } from '../lib/ui.js';
+import { confirmDialog, contextMenu, toast, toastError } from '../lib/ui.js';
 import { openLibraryAction } from '../shell/sidebar.js';
 import { editConnection } from './connections.js';
 import { playHere } from '../lib/handoff.js';
@@ -92,6 +92,7 @@ export async function mount(root) {
     const total = state.libs.reduce((a, l) => a + (l.items || 0), 0);
     const scans = state.libs.filter(l => running(state.jobs[l.id]));
     const clear = feed.played.length ? h('button.btn.ghost.small', { type: 'button', title: t('home.forgetPlayed'), onclick: async () => {
+      if (!await confirmDialog({ title: t('home.clearTitle'), message: t('home.clearMessage'), confirm: t('home.clear'), danger: true })) return;
       try { await del('/api/history'); refreshFeed(); } catch (e) { toastError(t('home.clearFailed'), e); }
     } }, t('home.clear')) : null;
     fill(inner,
@@ -148,7 +149,7 @@ export async function mount(root) {
             h('button.btn.ghost', { type: 'button', onclick: async () => { const c = await editConnection(); if (c) navigate('storage', c.id); } }, icon('cloud', 'sm'), t('home.inCloud')))]),
       ffmpegCard,
       added.size || state.libs.length ? h('div.ob-done', h('button.btn.primary.big', { type: 'button', onclick: async () => { guide = false; await loadLibraries(); refreshFeed(); } }, t('home.startWatching'), icon('chevron-right', 'sm'))) : null,
-      h('p.welcome-tip', tx('home.tip', { keys: h('kbd', 'Ctrl K') }))));
+      h('p.welcome-tip', tx('home.tip', { keys: h('kbd', keys('K')) }))));
     paintFound();
     if (found === null && sys?.can_edit !== false) {
       try { found = (await get('/api/suggestions')).folders; } catch (e) { found = []; foundError = e.status === 403 ? t('home.foldersOnServer') : ''; }

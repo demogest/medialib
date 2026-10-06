@@ -20,6 +20,8 @@ const TOOLS = [
   ['ffprobe', t('settings.toolFfprobe')],
   ['rclone', t('settings.toolRclone')],
 ];
+// The system medialib runs on, by the name people know it ('windows/amd64' is Windows).
+const osName = platform => ({ windows: 'Windows', darwin: 'macOS', linux: 'Linux', freebsd: 'FreeBSD' })[(platform || '').split('/')[0]] || platform;
 const base = p => p.split(/[\\/]/).pop().replace(/\.(exe|app)$/i, '');
 
 export async function mount(root, parts = []) {
@@ -69,7 +71,7 @@ export async function mount(root, parts = []) {
       [['', t('settings.languageSystem')], ...LANGUAGES].map(([code, name]) => h('option', { value: code, lang: code || null }, name)));
     language.value = chosen;
     language.addEventListener('change', () => setLanguage(language.value));
-    return [h('div.section-title', t('settings.appearance')), h('div.card-box.set-card', row(t('settings.theme'), t('settings.themeHint'), seg),
+    return [h('div.section-title#appearance', t('settings.appearance')), h('div.card-box.set-card', row(t('settings.theme'), t('settings.themeHint'), seg),
       row(t('settings.language'), t('settings.languageHint'), language))];
   }
 
@@ -160,7 +162,7 @@ export async function mount(root, parts = []) {
     const auto = info.auto_index_env
       ? h('span.mono', { title: t('settings.setByEnv') }, info.auto_index ? t('settings.everyMin', { minutes: info.auto_index }) : t('settings.intervalOff'))
       : choice(INTERVALS, info.auto_index, v => save({ auto_index: v }), t('settings.autoIndex'), v => t('settings.everyMinutes', { minutes: v }));
-    return [h('div.section-title', t('settings.indexing')), h('div.card-box.set-card',
+    return [h('div.section-title#scanning', t('settings.indexing')), h('div.card-box.set-card',
       row(t('settings.autoIndex'), info.auto_index_env ? t('settings.autoIndexEnvHint') : t('settings.autoIndexHint'), auto),
       row(t('settings.coverQuality'), t('settings.coverQualityHint'), choice(QUALITY, info.thumb_quality || 0, v => save({ thumb_quality: v }), t('settings.coverQuality'), v => t('settings.qualityValue', { value: v }))),
       row(t('settings.workers'), t('settings.workersHint'), choice(WORKERS, info.workers, v => save({ workers: v }), t('settings.workers'))))];
@@ -182,7 +184,7 @@ export async function mount(root, parts = []) {
       btn(t('settings.lookAgain'), async () => { try { await loadPlayers(await post('/api/players/detect', {})); await refresh(); toast(t('settings.lookedAgain'), { kind: 'ok' }); } catch (e) { toastError(t('settings.couldNotLookPlayers'), e); } },
         { icon: 'refresh', title: t('settings.lookAgainHint') }),
       hidden.length ? btn(t('settings.bringBack', { count: hidden.length }), () => restorePlayers(), { title: hidden.map(p => p.name).join(', ') }) : null) : null;
-    return [h('div.section-title', t('settings.players')), h('div.card-box.set-card', { role: 'radiogroup', 'aria-label': t('settings.defaultPlayer') }, rows, foot)];
+    return [h('div.section-title#players', t('settings.players')), h('div.card-box.set-card', { role: 'radiogroup', 'aria-label': t('settings.defaultPlayer') }, rows, foot)];
   }
   async function afterPlayers(j) { await loadPlayers(j); await refresh(); }
   async function removePlayer(p) {
@@ -216,7 +218,7 @@ export async function mount(root, parts = []) {
 
   // ---------------------------------------------------------------- tools
   function tools() {
-    return [h('div.section-title', t('settings.tools')), h('div.card-box.set-card', TOOLS.map(([name, why]) => {
+    return [h('div.section-title#tools', t('settings.tools')), h('div.card-box.set-card', TOOLS.map(([name, why]) => {
       const found = info[name], set = info.tools?.[name], custom = set && set !== name;
       return h('div.set-row', h('div.grow', h('div.set-name', name), h('div.muted', why), typeof found === 'string' ? h('code.mono.set-path', found) : null),
         found ? h('span.tag.ok', icon('check', 'sm'), t('settings.found')) : h('span.tag.warn', t('settings.notFound')),
@@ -241,7 +243,7 @@ export async function mount(root, parts = []) {
     if (!info.config_file) return []; // not shown to a browser that may only watch
     const task = moving && state.tasks.find(x => x.id === moving);
     const cacheHint = task && task.state === 'running' ? t('settings.moving', { done: task.done, total: task.total, size: bytes(task.bytes) }) : t('settings.cacheHint');
-    return [h('div.section-title', t('settings.files')), h('div.card-box.set-card',
+    return [h('div.section-title#files', t('settings.files')), h('div.card-box.set-card',
       h('div.set-row', h('div.grow', h('div.set-name', t('settings.cache')), h('div.muted', cacheHint), h('code.mono.set-path', info.cache_dir)),
         here() ? btn(t('common.open'), () => openFolder('cache'), { icon: 'folder' }) : null,
         editable() ? btn(t('settings.move'), () => moveCache(), { disabled: !!(task && task.state === 'running') }) : null,
@@ -283,7 +285,7 @@ export async function mount(root, parts = []) {
   // ---------------------------------------------------------------- cloud storage
   function cloud() {
     const n = state.connections.length;
-    return [h('div.section-title', t('settings.cloud')), h('div.card-box.set-card',
+    return [h('div.section-title#cloud', t('settings.cloud')), h('div.card-box.set-card',
       row(t('settings.connections'), n ? t('settings.connectedStores', { count: n, names: state.connections.map(c => c.name).join(', ') }) : t('settings.cloudHint'),
         h('a.btn.small', { href: '#/connections' }, icon(n ? 'plug' : 'plus', 'sm'), n ? t('settings.manage') : t('settings.connectStore'))))];
   }
@@ -291,15 +293,22 @@ export async function mount(root, parts = []) {
   // ---------------------------------------------------------------- about
   function about() {
     return [h('div.section-title#about', t('settings.about')), h('div.card-box.set-card',
-      row('Media Library', info.mode === 'desktop' ? t('settings.aboutDesktop', { platform: info.platform, runtime: info.runtime }) : t('settings.aboutServer', { platform: info.platform, runtime: info.runtime }), h('span.mono', info.version)),
+      row('Media Library', h('span', { title: `${info.platform} · ${info.runtime}` }, info.mode === 'desktop' ? t('settings.aboutDesktop', { os: osName(info.platform) }) : t('settings.aboutServer', { os: osName(info.platform) })), h('span.mono', info.version)),
       updates())];
   }
 
   function render() {
-    if (!info) { fill(body, appearance(), h('div.banner.error', t('settings.couldNotRead'))); return; }
+    if (!info) {
+      fill(body, appearance(), h('div.banner.error', h('span.grow', t('settings.couldNotRead')), h('button.btn.small', { type: 'button', onclick: () => refresh() }, icon('refresh', 'sm'), t('common.retry'))));
+      return;
+    }
+    const jump = h('nav.set-jump', { 'aria-label': t('settings.sections') });
     fill(body,
+      jump,
       editable() ? null : h('div.banner', icon('info', 'sm'), t('settings.readOnly')),
       appearance(), indexing(), playersCard(), cloud(), tools(), files(), about());
+    // A row of the sections to jump to: a long page, most of it set once.
+    fill(jump, [...body.querySelectorAll('.section-title[id]')].map(el => h('button', { type: 'button', onclick: () => el.scrollIntoView({ block: 'start', behavior: 'smooth' }) }, el.textContent)));
   }
 
   offs.push(on('activity', () => {
@@ -308,7 +317,7 @@ export async function mount(root, parts = []) {
     if (task.state !== 'running') finishMove(task); else render();
   }));
   // #/settings/about (the sidebar's update button): the version and its updates.
-  const show = p => { if (p[0] === 'about') requestAnimationFrame(() => body.querySelector('#about')?.scrollIntoView({ block: 'start' })); };
+  const show = p => { if (/^[a-z]+$/.test(p[0] || '')) requestAnimationFrame(() => body.querySelector('#' + p[0])?.scrollIntoView({ block: 'start' })); };
   await refresh();
   show(parts);
   return { update: show, destroy() { clearInterval(poll); offs.forEach(f => f()); } };

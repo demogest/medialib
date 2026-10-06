@@ -75,6 +75,10 @@ func TestRecentlyAddedIsWhenMedialibFoundTheFile(t *testing.T) {
 	copied := media.NewItem("copied.mp4", "copied.mp4", "", "video", 1, "2019-05-01T00:00:00Z")
 	copied.Added = "2026-10-06T00:00:00Z"
 	recs[copied.ID] = copied
+	// Found later still, but it could not be scanned: not something to show off.
+	broken := media.NewItem("broken.mp4", "broken.mp4", "", "video", 1, "2026-10-06T00:00:00Z")
+	broken.Added, broken.Error = "2026-10-06T01:00:00Z", "no moov box"
+	recs[broken.ID] = broken
 	if _, err := media.SaveLibrary(e.cfg, lib, recs, nil); err != nil {
 		t.Fatal(err)
 	}

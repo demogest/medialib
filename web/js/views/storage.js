@@ -478,9 +478,10 @@ export async function mount(root, parts) {
   }
 
   function finishTask(task, kind) {
-    if (task.state === 'running') { toast(t('storage.taskRunning', { kind })); return; }
+    const activity = { label: t('storage.openActivity'), run: () => navigate('activity') };
+    if (task.state === 'running') { toast(t('storage.taskRunning', { kind }), { action: activity, ms: 6000 }); return; }
     S.reported.add(task.id);
-    if (task.error_count) toast(t('storage.taskProblems', { kind, count: task.error_count }), { kind: 'error' });
+    if (task.error_count) toast(t('storage.taskProblems', { kind, count: task.error_count }), { kind: 'error', action: activity });
     else toast(t('storage.taskDone', { kind, count: task.done }), { kind: 'ok' });
     reload();
   }

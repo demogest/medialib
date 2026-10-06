@@ -4,12 +4,12 @@ import { icon, kindIcon } from '../lib/icons.js';
 import { get, objectUrl, post, s3Path } from '../lib/api.js';
 import { bytes, kindOf, leaf, when } from '../lib/fmt.js';
 import { locationPicker } from '../lib/picker.js';
-import { modal, toast, toastError } from '../lib/ui.js';
+import { copyByHand, modal, toast, toastError } from '../lib/ui.js';
 import { pokeWatcher, state } from '../lib/state.js';
 import { t } from '../lib/i18n.js';
 
 export async function copyText(text, done = t('storage.copied')) {
-  try { await navigator.clipboard.writeText(text); toast(done, { kind: 'ok' }); } catch { toast(t('storage.copyFailed', { text }), { kind: 'error' }); }
+  try { await navigator.clipboard.writeText(text); toast(done, { kind: 'ok' }); } catch { copyByHand(text); }
 }
 
 // ---------------------------------------------------------------- preview

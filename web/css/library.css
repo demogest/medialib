@@ -108,7 +108,7 @@
 .cover:hover .playhint, .cover:focus-visible .playhint { opacity: 1; }
 .cover.scrubbing .playhint { opacity: .85; }
 .meta { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 4px; margin-top: 8px; }
-.title { font-weight: 600; line-height: 1.32; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.title { padding: 0; border: 0; background: none; text-align: left; font-weight: 600; line-height: 1.32; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .sub { grid-column: 1; margin-top: 2px; color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .copy { grid-column: 2; grid-row: 1 / span 2; align-self: start; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 6px; background: none; color: var(--muted); opacity: 0; transition: opacity .12s; }
 .copy:hover { background: var(--hover); color: var(--text); }
@@ -116,7 +116,8 @@
 @media (hover: none) { .copy { opacity: 1; } }
 .card .title { cursor: pointer; }
 .card .title:hover { text-decoration: underline; text-underline-offset: 2px; }
-.empty { color: var(--muted); padding: 40px 0; text-align: center; }
+.lib-empty { padding: 48px 20px; }
+.empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
 
 /* details dialog: the keyframes, and what the index knows */
 .details { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 20px; align-items: start; }
@@ -139,7 +140,7 @@
 .lib-list { list-style: none; margin: 0; padding: 0; }
 .lib { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 13px 0; border-bottom: 1px solid var(--rule); }
 .lib:last-child { border-bottom: 0; }
-.lib-main { flex: 1 1 260px; min-width: 0; }
+.lib-info { flex: 1 1 260px; min-width: 0; }
 .lib-name { font-weight: 650; overflow-wrap: anywhere; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .lib-loc { color: var(--text-2); font-size: 12.5px; overflow-wrap: anywhere; }
 .lib-meta { color: var(--muted); font-size: 12.5px; margin-top: 2px; font-variant-numeric: tabular-nums; }
@@ -175,10 +176,8 @@
 @media (max-width: 1100px) { .lib-bar select { max-width: 110px; } }
 @media (max-width: 860px) {
   :root { --card-min: 160px; }
-  .lib-bar { flex-wrap: wrap; height: auto; padding: 8px 12px; gap: 6px; }
   .nav-toggle { display: grid; margin-left: -6px; }
-  .lib-bar .search { order: 9; flex: 1 1 100%; max-width: none; margin: 0; }
-  .lib-switch { flex: 1; max-width: none; justify-content: flex-start; }
+  .lib-switch { justify-content: flex-start; }
   .lib-switch-name { flex: 1; text-align: left; }
   .bar-spacer { display: none; }
   .ring { order: 8; }
@@ -204,14 +203,16 @@
 .banner-detail { margin-top: 2px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 .banner.warn .banner-detail, .banner.error .banner-detail { color: inherit; opacity: .85; }
 
-/* phones: the toolbar wraps onto two rows (search on its own) instead of running over the page */
+/* phones: one row of toolbar, the search taking what is left; the sort moves into the view options */
 @media (max-width: 860px) {
-  .lib-bar { flex-wrap: wrap; height: auto !important; min-height: 54px; padding: 8px 10px !important; row-gap: 8px; }
-  .lib-bar .search { order: 10; flex: 1 1 100%; max-width: none; }
-  .lib-bar .bar-spacer { display: none; }
-  .lib-switch { flex: 1 1 auto; min-width: 0; max-width: none; }
-  .lib-bar select { max-width: 104px; }
+  .lib-bar { flex-wrap: nowrap; height: 56px !important; padding: 0 10px !important; gap: 6px; }
+  .lib-bar .search { flex: 1 1 0; min-width: 0; max-width: none; margin: 0; }
+  .lib-bar .bar-spacer, .lib-bar > select { display: none; }
+  .lib-bar > .btn, .lib-bar > .icon-btn { flex: none; }
+  .lib-bar > .lib-switch { flex: 0 1 auto; min-width: 0; max-width: 40%; }
+  .lib-switch > .ic:first-child { display: none; }  /* the name needs the room; the page title says the rest */
   .types-label { display: none; }
+  .menu-custom select { width: 100%; }
   .scopebar .actions { margin-left: 0; width: 100%; }
   .scopebar .actions .btn.primary { flex: 1; justify-content: center; }
 }

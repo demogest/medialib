@@ -179,6 +179,8 @@ progress:indeterminate::-moz-progress-bar { background: transparent; }
 .toast.ok .ic:first-child { color: #55c98b; }
 .toast .act { margin-left: 4px; padding: 3px 9px; border: 0; border-radius: 6px; background: rgb(255 255 255 / .16); color: inherit; font-weight: 600; }
 .toast .act:hover { background: rgb(255 255 255 / .26); }
+.toast .toast-x { width: 24px; height: 24px; margin: -2px -6px -2px 0; color: inherit; opacity: .7; }
+.toast .toast-x:hover { opacity: 1; background: rgb(255 255 255 / .16); }
 @media (max-width: 860px) { .toasts { bottom: 76px; } }
 
 /* handing a video to a player app on a phone */
