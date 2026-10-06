@@ -270,3 +270,50 @@ func TestCheckErrorsAndCaching(t *testing.T) {
 		t.Errorf("a fresh answer was not reused: %d calls", calls)
 	}
 }
+
+func TestNotesOfEveryReleaseSinceThisCopy(t *testing.T) {
+	list := []release{
+		{Tag: "v3.5.0-rc1", Body: "rc", Prerelease: true},
+		{Tag: "v3.4.0", Body: "four"},
+		{Tag: "v3.3.1", Body: "three one", Published: "2026-09-01T00:00:00Z"},
+		{Tag: "v3.6.0", Body: "draft", Draft: true},
+		{Tag: "v3.3.0", Body: "three"},
+		{Tag: "v3.2.0", Body: "two"},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/" + Repo + "/releases/latest":
+			_ = json.NewEncoder(w).Encode(list[1])
+		case "/repos/" + Repo + "/releases":
+			_ = json.NewEncoder(w).Encode(list)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	versions := func(rs []Release) (v []string) {
+		for _, r := range rs {
+			v = append(v, r.Version+":"+r.Notes)
+		}
+		return v
+	}
+	u := &Updater{Current: "3.2.0", API: srv.URL, Exe: installedCopy(t, "medialib")}
+	st := u.Check(context.Background(), 0)
+	if got, want := strings.Join(versions(st.Releases), ","), "3.4.0:four,3.3.1:three one,3.3.0:three"; got != want {
+		t.Errorf("releases = %s, want %s", got, want)
+	}
+	if st.Releases[1].Published == "" {
+		t.Errorf("no release date: %+v", st.Releases[1])
+	}
+	u = &Updater{Current: "3.4.0", API: srv.URL, Exe: installedCopy(t, "medialib")}
+	if got := strings.Join(versions(u.Check(context.Background(), 0).Releases), ","); got != "3.4.0:four" {
+		t.Errorf("up to date: releases = %s", got)
+	}
+
+	// No list of releases (GitHub refused it): the latest release's notes.
+	g := newGitHub(t, "v3.3.0", nil, false)
+	u = &Updater{Current: "3.1.0", API: g.URL, Exe: installedCopy(t, "medialib")}
+	if got := strings.Join(versions(u.Check(context.Background(), 0).Releases), ","); got != "3.3.0:notes" {
+		t.Errorf("no list: releases = %s", got)
+	}
+}

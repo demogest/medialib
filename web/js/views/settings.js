@@ -5,6 +5,7 @@ import { icon } from '../lib/icons.js';
 import { get, post, put, del } from '../lib/api.js';
 import { ago, bytes, plural } from '../lib/fmt.js';
 import { loadPlayers, loadUpdate, on, pokeWatcher, state } from '../lib/state.js';
+import { markdown } from '../lib/markdown.js';
 import { store } from '../lib/store.js';
 import { setTheme } from '../shell/sidebar.js';
 import { confirmDialog, modal, promptDialog, toast, toastError } from '../lib/ui.js';
@@ -81,6 +82,7 @@ export async function mount(root) {
       rows.push(row('Could not look for updates', upd.error, btn('Try again', () => check())));
     } else {
       rows.push(row(upd.latest ? 'medialib is up to date' : 'Updates', upd.checked ? `Version ${upd.current} · looked ${ago(upd.checked)}` : `Version ${upd.current}`,
+        upd.latest && upd.notes ? btn('What’s new', () => notes(upd)) : null,
         btn('Check now', () => check(), { icon: 'refresh' })));
     }
     rows.push(row('Automatic updates', info.mode === 'desktop' ? 'Look for a new version every few hours; or also download it, and install it as medialib closes.'
@@ -91,6 +93,7 @@ export async function mount(root) {
   async function check() {
     try { upd = await post('/api/update', { action: 'check' }); state.update = upd; } catch (e) { toastError('Could not look for updates', e); }
     render();
+    if (upd && upd.available && !upd.ready && upd.state !== 'downloading' && (upd.notes || (upd.releases || []).length)) notes(upd); // asked for: say what the new version brings
   }
   async function install() {
     try {
@@ -107,9 +110,21 @@ export async function mount(root) {
       if (upd.state === 'error') { clearInterval(poll); toastError('The update failed', upd.error); }
     }, 1000);
   }
+  // What changed in every version since this one (or in this one, when it is the latest), newest first.
   function notes(u) {
-    modal({ title: `What’s new in ${u.latest}`, size: 'wide', body: h('div.notes', markdown(u.notes)),
-      actions: [u.page ? { label: 'Open on GitHub', left: true, onClick: () => window.open(u.page, '_blank') } : null, { label: 'Close', primary: true }].filter(Boolean) });
+    const list = u.releases && u.releases.length ? u.releases : [{ version: u.latest, notes: u.notes, published: u.published, page: u.page }];
+    const title = list.length > 1 ? `What’s new since ${u.current}` : `What’s new in ${list[0].version}`;
+    const page = list[0].page || u.page;
+    const body = r => {
+      // "Changes since v3.3.1" says again what the version heading does; the downloads table is the release page's.
+      const els = markdown((r.notes || '').replace(/^\s*#{1,6}\s+changes since\b.*\n/i, ''), { skip: t => /^downloads$/i.test(t.trim()) });
+      return els.length ? els : h('p.muted', 'This release has no notes.');
+    };
+    modal({ title, size: 'wide', body: h('div.notes', list.map(r => h('section.notes-release',
+      h('h2.notes-version', `Version ${r.version}`, r.version === u.current ? h('span.notes-when', ' · the one you have') : null,
+        r.published ? h('span.notes-when', ` · released ${ago(r.published)}`) : null),
+      body(r)))),
+      actions: [page ? { label: 'Open on GitHub', left: true, onClick: () => window.open(page, '_blank') } : null, { label: 'Close', primary: true }].filter(Boolean) });
   }
 
   // ---------------------------------------------------------------- indexing
@@ -265,40 +280,4 @@ export async function mount(root) {
   }));
   await refresh();
   return { destroy() { clearInterval(poll); offs.forEach(f => f()); } };
-}
-
-// A small part of Markdown, enough for release notes: headings, lists, paragraphs, `code` and **bold** (the
-// downloads table is left to the release page). Built as elements, never as HTML.
-function markdown(text) {
-  const out = [];
-  let list = null, para = [];
-  const inline = s => s.split(/(`[^`]+`|\*\*[^*]+\*\*)/).map(p => p.startsWith('`') && p.endsWith('`') && p.length > 1 ? h('code', p.slice(1, -1))
-    : p.startsWith('**') && p.endsWith('**') && p.length > 3 ? h('strong', p.slice(2, -2)) : p);
-  const flush = () => { if (para.length) out.push(h('p', inline(para.join(' ')))); para = []; list = null; };
-  let skip = 0; // inside the downloads section (a table of files): the release page has it
-  for (const raw of (text || '').split('\n')) {
-    const line = raw.trimEnd();
-    let m;
-    if ((m = line.match(/^(#{1,4})\s+(.*)/))) {
-      flush();
-      if (skip && m[1].length > skip) continue;
-      skip = /^downloads$/i.test(m[2].trim()) ? m[1].length : 0;
-      if (!skip) out.push(h(m[1].length <= 2 ? 'h3' : 'h4', inline(m[2])));
-      continue;
-    }
-    if (skip) continue;
-    if (!line.trim()) { flush(); continue; }
-    if ((m = line.match(/^\s*[-*]\s+(.*)/))) {
-      if (para.length) { out.push(h('p', inline(para.join(' ')))); para = []; }
-      if (!list) out.push(list = h('ul'));
-      list.append(h('li', inline(m[1])));
-      continue;
-    }
-    if (line.startsWith('|')) continue; // tables (the downloads): the release page shows them
-    if (list && /^\s+\S/.test(raw)) { list.lastChild.append(' ', ...inline(line.trim())); continue; }
-    list = null;
-    para.push(line.trim());
-  }
-  flush();
-  return out;
 }
