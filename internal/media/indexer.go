@@ -238,6 +238,9 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 	}
 
 	started, fetched0, saved := time.Now(), FetchedTotal(), time.Now()
+	// A checkpoint rewrites the whole index: every 3 seconds for a small library, less often for a big one, where a
+	// save takes a while (3 seconds per 10,000 files).
+	every := max(3*time.Second, time.Duration(len(recs))*3*time.Second/10000)
 	type result struct {
 		item Item
 		rec  Item
@@ -296,7 +299,7 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 		if res.rec.Error != "" {
 			errorsN++
 		}
-		if time.Since(saved) > 3*time.Second { // lets a running UI pick up new covers as they land
+		if time.Since(saved) > every { // lets a running UI pick up new covers as they land
 			_, _ = SaveLibrary(ix.Cfg, lib, recs, warnings) // only a checkpoint: the next one, or the final save, will land
 			saved = time.Now()
 		}

@@ -34,7 +34,7 @@ const localPath = (root, key) => {
 const addedAt = it => it.added || it.mtime;
 // Why a file could not be scanned, in plain words, from what ffmpeg or medialib said.
 const REASONS = [
-  [/moov atom not found|end of file|truncat|partial file/i, 'The file is incomplete: still downloading, or cut short.'],
+  [/moov|end of file|truncat|partial file/i, 'The file is incomplete: still downloading, or cut short.'],
   [/invalid data|could not find codec|unknown format|not supported|no indexed video track|EBML header parsing failed/i, 'It is damaged, or not a format ffmpeg can read.'],
   [/no frame could be extracted/i, 'No picture could be read from it.'],
   [/permission denied|access is denied|403|forbidden/i, 'medialib is not allowed to read it.'],
@@ -62,7 +62,7 @@ const groupSort = {
 export async function mount(root, parts) {
   const scope = new Scope();
   const S = {
-    lib: null, info: null, items: [], byId: new Map(), scope: '', q: '', sort: store.get('sort', 'name'),
+    lib: null, info: null, version: null, items: [], byId: new Map(), scope: '', q: '', sort: store.get('sort', 'name'),
     tree: null, nodes: new Map(), shown: [], hidden: defaultHidden(), visibleIds: [], player: null,
     match: null, rank: null, ranked: true, sortAuto: true, pendingReveal: null,
   };
@@ -294,7 +294,7 @@ export async function mount(root, parts) {
     if (it.frames > 1) cover.append(h('span.ticks', Array.from({ length: it.frames }, () => h('i'))));
     const hint = h('span.playhint'); hint.innerHTML = PLAY_HINT; cover.append(hint);
     const title = h('div.title', { title: it.name + '\nClick for details' }, stem(it.name));
-    const sub = h('div.sub', { title: `${bytes(it.size)} · ${when(it.mtime)}` }, entry.sub || `Added ${ago(it.mtime)}`);
+    const sub = h('div.sub', { title: `${bytes(it.size)} · ${when(it.mtime)}` }, entry.sub || `Added ${ago(addedAt(it))}`);
     const cp = h('button.copy', { type: 'button', title: linkLabel(), 'aria-label': `${linkLabel()} of ${it.name}` }, icon('copy', 'sm'));
     art.append(cover, h('div.meta', title, cp, sub));
     return art;
@@ -542,7 +542,7 @@ export async function mount(root, parts) {
     });
   }
   function fitPath(box) {
-    if (!box.clientWidth) return;
+    if (!box.clientWidth || !box._parts) return; // "Files in this folder" is a plain title, not a path
     box.classList.add('measuring');
     const middle = Math.max(0, box._parts.length - 2);
     for (let omit = 0; omit <= middle; omit++) { drawPath(box, omit); if (box.scrollWidth <= box.clientWidth) break; }
@@ -568,6 +568,7 @@ export async function mount(root, parts) {
   async function loadLibrary(keepView = false) {
     const lib = await get('/api/library?lib=' + encodeURIComponent(S.lib));
     S.info = lib;
+    S.version = lib.version;
     S.items = lib.items;
     for (const it of lib.items) it.ext = extOf(it.name);
     S.byId = new Map(lib.items.map(it => [it.id, it]));
@@ -576,6 +577,53 @@ export async function mount(root, parts) {
     paintBanner();
     paintSwitch();
     if (S.q.trim()) runSearch(); // files may have arrived
+  }
+  // While a scan runs: fetch only what changed since the version on screen, and redraw just the cards it touches.
+  // Files that come or go change the folders, so then (and when the scan ends) the view is rebuilt, still without
+  // downloading the whole library again.
+  async function refreshLibrary(final = false) {
+    if (!S.version) return loadLibrary(true);
+    const id = S.lib;
+    const j = await get(`/api/library?lib=${encodeURIComponent(id)}&since=${encodeURIComponent(S.version)}`);
+    if (id !== S.lib) return;
+    if (!j.changed) { // the server no longer knows that version (it restarted): this is the whole library
+      S.info = j; S.version = j.version; S.items = j.items;
+      for (const it of S.items) it.ext = extOf(it.name);
+      S.byId = new Map(S.items.map(it => [it.id, it]));
+      final = true;
+    } else {
+      S.info = j;
+      S.version = j.version;
+      let shape = j.removed.length > 0;
+      for (const fresh of j.changed) {
+        fresh.ext = extOf(fresh.name);
+        const old = S.byId.get(fresh.id);
+        if (!old) { S.items.push(fresh); S.byId.set(fresh.id, fresh); shape = true; continue; }
+        for (const k of Object.keys(old)) if (!(k in fresh)) delete old[k]; // a field the server leaves out when empty
+        Object.assign(old, fresh);
+      }
+      if (j.removed.length) {
+        const gone = new Set(j.removed);
+        S.items = S.items.filter(it => !gone.has(it.id));
+        for (const x of gone) S.byId.delete(x);
+      }
+      if (!shape && !final) { redrawCards(new Set(j.changed.map(x => x.id))); paintBanner(); return; }
+    }
+    rebuildView(true);
+    paintTypes();
+    paintBanner();
+    paintSwitch();
+    if (S.q.trim()) runSearch();
+  }
+  function redrawCards(ids) {
+    if (!ids.size) return;
+    for (const grid of $$('.grid', groups)) {
+      for (const el of grid.querySelectorAll('.card')) {
+        if (!ids.has(el.dataset.id)) continue;
+        const entry = grid._entries.find(e => e.it.id === el.dataset.id);
+        if (entry) el.replaceWith(card(entry));
+      }
+    }
   }
   function rebuildView(keepView, scopePath = S.scope) {
     S.shown = S.hidden.size ? S.items.filter(it => !S.hidden.has(it.ext)) : S.items;
@@ -712,7 +760,7 @@ export async function mount(root, parts) {
     const list = h('ul.fail-list');
     const m = modal({
       title: 'Files that could not be scanned', size: 'wide', body: h('div', h('p.hint',
-        'These files have no cover. Scans leave them alone until they change; try again after replacing a file or updating ffmpeg.'), list),
+        'These files have no cover. Scans skip them until the files change; try again after replacing one or updating ffmpeg.'), list),
       actions: [{ label: 'Close', left: true, value: false },
         { label: 'Try again', primary: true, onClick: () => startIndex(S.lib, false, true) }],
     });
@@ -850,7 +898,7 @@ export async function mount(root, parts) {
     const finished = running(before) && !running(now);
     if (finished || (running(now) && now.state === 'indexing' && Date.now() - lastRefresh > 8000)) {
       lastRefresh = Date.now();
-      loadLibrary(true).catch(() => {});
+      refreshLibrary(finished).catch(() => loadLibrary(true).catch(() => {}));
     }
     if (anyFinished) loadLibraries().catch(() => {});  // a finished run changes a library's item count and indexed time
     paintBanner();

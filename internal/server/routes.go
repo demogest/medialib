@@ -383,6 +383,16 @@ func (a *App) getLibrary(c *Ctx) (any, error) {
 		return nil, errors.New("the library index could not be read")
 	}
 	d["warnings"] = snap.Data.Warnings
+	d["version"] = snap.Version
+	// A page that has a version already gets only what changed since: while a scan runs, it asks every few seconds,
+	// and a whole big library each time would be megabytes.
+	if since := c.Arg("since"); since != "" {
+		if changed, removed, ok := snap.Since(since); ok {
+			d["changed"], d["removed"] = changed, removed
+			delete(d, "items") // the count from Describe: a full answer puts the items there
+			return d, nil
+		}
+	}
 	d["items"] = snap.ItemsJSON()
 	return d, nil
 }

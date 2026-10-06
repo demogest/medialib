@@ -388,3 +388,43 @@ func TestRevealShowsALocalFileOnThisComputerOnly(t *testing.T) {
 		t.Errorf("revealed %v", shown)
 	}
 }
+
+func TestLibraryAnswersWithWhatChanged(t *testing.T) {
+	e := setup(t, false)
+	lib, _ := e.cfg.Library("videos")
+	mk := func(name string) media.Item {
+		return media.NewItem(name, name, "", "video", 1, "2026-01-01T00:00:00Z")
+	}
+	a, b, c := mk("a.mp4"), mk("b.mp4"), mk("c.mp4")
+	if _, err := media.SaveLibrary(e.cfg, lib, map[string]media.Item{a.ID: a, b.ID: b}, nil); err != nil {
+		t.Fatal(err)
+	}
+	first := decode(t, e.do("GET", "/api/library?lib=videos", ""))
+	v1, _ := first["version"].(string)
+	if v1 == "" || len(first["items"].([]any)) != 2 {
+		t.Fatalf("full answer: %v", first)
+	}
+	// a gets its covers, b goes, c arrives
+	a.Frames, a.Indexed = 5, true
+	if _, err := media.SaveLibrary(e.cfg, lib, map[string]media.Item{a.ID: a, c.ID: c}, nil); err != nil {
+		t.Fatal(err)
+	}
+	delta := decode(t, e.do("GET", "/api/library?lib=videos&since="+url.QueryEscape(v1), ""))
+	changed, removed := delta["changed"].([]any), delta["removed"].([]any)
+	names := map[any]bool{}
+	for _, x := range changed {
+		names[x.(map[string]any)["name"]] = true
+	}
+	if delta["items"] != nil || len(changed) != 2 || !names["a.mp4"] || !names["c.mp4"] || len(removed) != 1 || removed[0] != b.ID || delta["version"] == v1 {
+		t.Fatalf("delta: %v", delta)
+	}
+	// Nothing new since then: an empty answer, not the library.
+	again := decode(t, e.do("GET", "/api/library?lib=videos&since="+url.QueryEscape(delta["version"].(string)), ""))
+	if len(again["changed"].([]any)) != 0 || len(again["removed"].([]any)) != 0 {
+		t.Errorf("no change: %v", again)
+	}
+	// A version this server never gave out (it restarted): everything.
+	if full := decode(t, e.do("GET", "/api/library?lib=videos&since=old.3", "")); len(full["items"].([]any)) != 2 || full["changed"] != nil {
+		t.Errorf("unknown version: %v", full)
+	}
+}

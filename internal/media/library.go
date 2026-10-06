@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -182,6 +183,11 @@ func LoadLibrary(cfg *config.Config, lib config.Library) (*Data, error) {
 type Snapshot struct {
 	Data     *Data
 	ByID     map[string]*Item
+	Version  string // names this snapshot for Since: the store's nonce and gen
+	gen      uint64
+	floor    uint64            // the oldest gen Since can answer from
+	seq      map[string]uint64 // item id -> the gen in which it last changed
+	removed  []removal
 	raw      json.RawMessage
 	rawOnce  sync.Once
 	docs     []search.Doc
@@ -200,17 +206,99 @@ func (s *Snapshot) ItemsJSON() json.RawMessage {
 	return s.raw
 }
 
+// removal is an item that left the index in a given gen.
+type removal struct {
+	id  string
+	gen uint64
+}
+
+// maxRemovals bounds the removals a snapshot remembers; a page older than the oldest of them reloads in full.
+const maxRemovals = 4096
+
+// Since is what changed after the snapshot named version: the items added or changed, and the ids of those removed.
+// ok is false when that is not known (another store, or too long ago): the page then loads everything.
+func (s *Snapshot) Since(version string) (changed []Item, removed []string, ok bool) {
+	nonce, g, found := strings.Cut(version, ".")
+	gen, err := strconv.ParseUint(g, 10, 64)
+	if !found || err != nil || nonce != s.nonce() || gen < s.floor || gen > s.gen {
+		return nil, nil, false
+	}
+	changed, removed = []Item{}, []string{}
+	for i := range s.Data.Items {
+		if s.seq[s.Data.Items[i].ID] > gen {
+			changed = append(changed, s.Data.Items[i])
+		}
+	}
+	for _, r := range s.removed {
+		if r.gen > gen {
+			removed = append(removed, r.id)
+		}
+	}
+	return changed, removed, true
+}
+
+func (s *Snapshot) nonce() string { n, _, _ := strings.Cut(s.Version, "."); return n }
+
+// sameItem reports whether a page showing a would show b the same.
+func sameItem(a, b *Item) bool {
+	coverA, coverB := -1, -1
+	if a.Cover != nil {
+		coverA = *a.Cover
+	}
+	if b.Cover != nil {
+		coverB = *b.Cover
+	}
+	return a.Ver == b.Ver && a.Key == b.Key && a.Indexed == b.Indexed && a.Frames == b.Frames && coverA == coverB &&
+		a.Error == b.Error && a.Note == b.Note && a.Added == b.Added && a.Duration == b.Duration && a.Width == b.Width &&
+		a.Height == b.Height && a.Codec == b.Codec && a.FPS == b.FPS && a.Audio == b.Audio
+}
+
+// numberSnapshot numbers a new snapshot after prev: which items changed in it, and which went away.
+func numberSnapshot(nonce string, prev, next *Snapshot) {
+	next.gen, next.floor = 1, 1
+	if prev != nil {
+		next.gen, next.floor = prev.gen+1, prev.floor
+	}
+	next.Version = nonce + "." + strconv.FormatUint(next.gen, 10)
+	next.seq = make(map[string]uint64, len(next.Data.Items))
+	for i := range next.Data.Items {
+		it := &next.Data.Items[i]
+		next.seq[it.ID] = next.gen
+		if prev != nil {
+			if old, ok := prev.ByID[it.ID]; ok && sameItem(old, it) {
+				next.seq[it.ID] = prev.seq[it.ID]
+			}
+		}
+	}
+	if prev == nil {
+		return
+	}
+	next.removed = append(next.removed, prev.removed...)
+	for id := range prev.ByID {
+		if _, ok := next.ByID[id]; !ok {
+			next.removed = append(next.removed, removal{id, next.gen})
+		}
+	}
+	if n := len(next.removed) - maxRemovals; n > 0 {
+		next.floor = next.removed[n-1].gen // a page from before this cannot learn what went
+		next.removed = append([]removal(nil), next.removed[n:]...)
+	}
+}
+
 // Store caches one library's index and reloads it whenever the indexer rewrites it.
 type Store struct {
 	cfg   *config.Config
 	lib   config.Library
+	nonce string
 	mu    sync.Mutex
 	stamp [2]fileStamp
 	snap  *Snapshot
 }
 
 // NewStore makes a store over a library.
-func NewStore(cfg *config.Config, lib config.Library) *Store { return &Store{cfg: cfg, lib: lib} }
+func NewStore(cfg *config.Config, lib config.Library) *Store {
+	return &Store{cfg: cfg, lib: lib, nonce: strconv.FormatInt(time.Now().UnixNano(), 36)}
+}
 
 // fileStamp tells versions of a file apart. The size counts as well as the time: FAT and exFAT (a portable copy on
 // a USB stick) keep times to 2 seconds, so two saves in a row can share one.
@@ -257,6 +345,8 @@ func (s *Store) Get() (*Snapshot, error) {
 	for i := range d.Items {
 		by[d.Items[i].ID] = &d.Items[i]
 	}
-	s.stamp, s.snap = m, &Snapshot{Data: d, ByID: by}
+	next := &Snapshot{Data: d, ByID: by}
+	numberSnapshot(s.nonce, s.snap, next)
+	s.stamp, s.snap = m, next
 	return s.snap, nil
 }
