@@ -69,6 +69,9 @@ export async function mount(root, parts) {
   try { const saved = store.get('hiddenTypes', null); if (saved) S.hidden = new Set(JSON.parse(saved)); } catch { /* keep the default */ }
 
   const thumb = (it, i) => `/thumbs/${S.lib}/${it.id}-${it.ver}-${i}.avif`;
+  const subUrl = (it, name) => `${location.origin}/subs/${S.lib}/${it.id}/${encodeURIComponent(name)}`;
+  // "Film.en.srt" next to "Film.mkv" reads "en (SRT)"; "Film.srt" just "SRT".
+  const subLabel = (it, name) => { const mid = name.slice(stem(it.name).length + 1, name.lastIndexOf('.')); const ext = extOf(name).toUpperCase(); return mid ? `${mid} (${ext})` : ext; };
   const mediaUrl = it => `${location.origin}/media/${S.lib}/${it.id}/${encodeURIComponent(it.name)}`;
 
   // ---------------------------------------------------------------- skeleton
@@ -181,6 +184,7 @@ export async function mount(root, parts) {
       row('Size', h('span', { title: num(it.size) + ' bytes' }, bytes(it.size))),
       row('Length', it.duration ? clock(it.duration) : null),
       row('Picture', it.width ? `${it.width} × ${it.height}` + (res ? ' · ' + res : '') + (it.fps ? ` · ${it.fps} fps` : '') : null),
+      row('Subtitles', it.subs?.length ? h('span', it.subs.map((n, i) => [i ? ', ' : '', h('a', { href: subUrl(it, n), target: '_blank', rel: 'noopener' }, subLabel(it, n))])) : null),
       row('Codec', it.codec ? it.codec + (it.kind === 'video' ? (it.audio ? ' · with sound' : ' · no sound') : '') : null),
       row(S.info.type === 'local' ? 'Modified' : 'Uploaded', h('span', { title: it.mtime }, when(it.mtime))),
       row('Added', it.added && it.added !== it.mtime ? h('span', { title: it.added }, when(it.added)) : null),
@@ -291,6 +295,7 @@ export async function mount(root, parts) {
     const res = resLabel(it.width, it.height);
     if (res) cover.append(h('span.badge.tl', res));
     if (it.duration) cover.append(h('span.badge.br', clock(it.duration)));
+    if (it.subs?.length) cover.append(h('span.badge.tr', { title: 'Subtitles: ' + it.subs.join(', ') }, 'CC'));
     if (it.frames > 1) cover.append(h('span.ticks', Array.from({ length: it.frames }, () => h('i'))));
     const hint = h('span.playhint'); hint.innerHTML = PLAY_HINT; cover.append(hint);
     const title = h('div.title', { title: it.name + '\nClick for details' }, stem(it.name));

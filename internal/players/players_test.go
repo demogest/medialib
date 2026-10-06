@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/demogest/medialib/internal/config"
@@ -61,5 +62,28 @@ func TestDetectFindsHidesAndOverridesPlayers(t *testing.T) {
 	all = Detect([]config.Player{{ID: "mpv", Name: "My mpv", Path: own}}, nil)
 	if got := ids(all); len(got) != 3 || all[0].Name != "My mpv" || got[1] != "vlc" {
 		t.Errorf("override: %v", got)
+	}
+}
+
+func TestSubtitleArguments(t *testing.T) {
+	byID := map[string]known{}
+	for _, k := range knownPlayers {
+		byID[k.id] = k
+	}
+	p := func(id string) Player { k := byID[id]; return Player{ID: id, SubArgs: k.subArgs, SubOnce: k.subOnce} }
+	subs := []string{"/c/Film.en.srt", "/c/Film.zh.srt"}
+	cases := map[string][]string{
+		"mpv":    {"--sub-file=/c/Film.en.srt", "--sub-file=/c/Film.zh.srt"},
+		"vlc":    {"--sub-file=/c/Film.en.srt"},
+		"mpc-hc": {"/sub", "/c/Film.en.srt", "/sub", "/c/Film.zh.srt"},
+		"iina":   {"--mpv-sub-file=/c/Film.en.srt", "--mpv-sub-file=/c/Film.zh.srt"},
+	}
+	for id, want := range cases {
+		if got := SubArgs(p(id), subs); strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("%s: %q, want %q", id, got, want)
+		}
+	}
+	if got := SubArgs(Player{ID: "system"}, subs); got != nil {
+		t.Errorf("the system default cannot be told: %q", got)
 	}
 }

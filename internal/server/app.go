@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -428,10 +429,50 @@ func (a *App) Play(lib config.Library, playerID string, recs []*media.Item) (str
 			}
 			entries = append(entries, players.Entry{Target: path, Name: r.Name, Duration: r.Duration})
 		} else {
-			entries = append(entries, players.Entry{Target: mediaURL(a.selfHost(), lib, r), Name: r.Name, Duration: r.Duration})
+			e := players.Entry{Target: mediaURL(a.selfHost(), lib, r), Name: r.Name, Duration: r.Duration}
+			if len(recs) == 1 {
+				e.Subs = a.fetchSubs(lib, r)
+			}
+			entries = append(entries, e)
 		}
 	}
 	return a.Launch(playerID, entries)
+}
+
+// fetchSubs copies the subtitle files of an item in a bucket to this computer, for a player that is handed the
+// video as a URL: it looks for subtitles next to a file it opens by path, never next to a URL. A subtitle that cannot
+// be fetched is left out; the video plays all the same.
+func (a *App) fetchSubs(lib config.Library, rec *media.Item) []string {
+	if len(rec.Subs) == 0 {
+		return nil
+	}
+	dir := filepath.Join(a.Cfg.CacheDir(), "subs", lib.ID, rec.ID)
+	_ = os.RemoveAll(dir)
+	if os.MkdirAll(dir, 0o755) != nil {
+		return nil
+	}
+	client := &http.Client{Timeout: 20 * time.Second}
+	var paths []string
+	for _, name := range rec.Subs {
+		u, err := media.Presign(a.Cfg, a.Clients, lib, rec.SubKey(name), time.Hour)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Get(u)
+		if err != nil {
+			continue
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+		resp.Body.Close()
+		if err != nil || resp.StatusCode != http.StatusOK {
+			continue
+		}
+		p := filepath.Join(dir, filepath.Base(filepath.FromSlash(name)))
+		if os.WriteFile(p, body, 0o644) == nil {
+			paths = append(paths, p)
+		}
+	}
+	return paths
 }
 
 // Launch opens entries in a player: one directly, several as a playlist.

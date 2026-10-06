@@ -13,7 +13,9 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +59,7 @@ func (a *App) Handler(web fs.FS) http.Handler {
 	def("GET /api/players", open, func(c *Ctx) (any, error) { return a.playerList(), nil })
 	def("GET /api/playlist.m3u8", open, a.playlist)
 	def("GET /media/{rest...}", open, a.media)
+	def("GET /subs/{lib}/{id}/{name}", open, a.subtitle)
 	def("POST /api/play", machine, a.play)
 	def("POST /api/reveal", machine, a.reveal)
 	def("POST /api/libraries", private, a.addLibrary)
@@ -527,6 +530,36 @@ func (a *App) media(c *Ctx) (any, error) {
 		return nil, nil
 	}
 	writeText(c.W, 404, "unknown media id")
+	return nil, nil
+}
+
+// subtitle serves one of an item's subtitle files: from the folder, or by a link into the bucket. A player on a phone
+// or another computer gets it this way.
+func (a *App) subtitle(c *Ctx) (any, error) {
+	lib, err := c.Library(c.P("lib"))
+	if err != nil {
+		return nil, err
+	}
+	snap, err := a.store(lib).Get()
+	if err != nil {
+		return nil, err
+	}
+	rec, ok := snap.ByID[c.P("id")]
+	if !ok || !slices.Contains(rec.Subs, c.P("name")) {
+		writeText(c.W, 404, "no such subtitle file")
+		return nil, nil
+	}
+	key := rec.SubKey(c.P("name"))
+	if lib.Type == "local" {
+		return nil, serveLocalFile(c, filepath.Join(config.LocalRoot(lib), filepath.FromSlash(key)))
+	}
+	target, err := media.Presign(a.Cfg, a.Clients, lib, key, 24*time.Hour)
+	if err != nil {
+		writeText(c.W, 502, err.Error())
+		return nil, nil
+	}
+	c.W.Header().Set("Cache-Control", "no-store")
+	http.Redirect(c.W, c.R, target, http.StatusFound)
 	return nil, nil
 }
 

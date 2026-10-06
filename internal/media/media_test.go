@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -58,7 +59,7 @@ func TestItemIDsAreStable(t *testing.T) {
 	if len(it.Ver) != 10 {
 		t.Errorf("ver %q", it.Ver)
 	}
-	if again := NewItem("shows/a.mp4", "a.mp4", "shows", "video", 123, "2026-01-02T03:04:05Z"); again != it {
+	if again := NewItem("shows/a.mp4", "a.mp4", "shows", "video", 123, "2026-01-02T03:04:05Z"); !reflect.DeepEqual(again, it) {
 		t.Error("not deterministic")
 	}
 	if changed := NewItem("shows/a.mp4", "a.mp4", "shows", "video", 124, "2026-01-02T03:04:05Z"); changed.ID != it.ID || changed.Ver == it.Ver {

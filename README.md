@@ -62,6 +62,7 @@ Every release lists its files and has a `SHA256SUMS` to check them against (`sha
 - Five real keyframes per video; hover a cover to scrub through them. medialib reads an MP4's own sample index and fetches only the bytes of the chosen keyframes (about 1 to 4 MB per video, even over the network). H.264, HEVC and AV1; other formats fall back to ffmpeg. Scans are incremental and use every core.
 - A library can be a local folder, a NAS share, or a folder in a bucket, read straight through the S3 API.
 - Plays in mpv, mpv.net, VLC, PotPlayer, MPC-HC, MPC-BE, IINA, SMPlayer, Celluloid, Haruna or the system default, whichever are installed, or any other you add in Settings.
+- Subtitle files named after a video (`Film.srt`, `Film.en.ass`, `Film.zh.vtt` next to `Film.mkv`) show as **CC** on its cover. A player opening a video from a bucket gets them too: medialib copies them to this computer and hands them over (mpv, mpv.net, IINA, MPC-HC and MPC-BE take all of them; VLC, PotPlayer and SMPlayer the first). From a folder, players find them by themselves.
 - **Copy link** gives the file's real location: its path on this computer for a local library, a link that works anywhere for a week for a bucket. **Save as playlist…** writes an `.m3u8` of the same links, which any player opens without medialib.
 - Click a file's name (or right-click → **Details**) for all its keyframes (arrow keys step through them), codec, frame rate, sound and full path. **Show in Explorer** (Finder, or the file manager on Linux) opens its folder with the file selected.
 

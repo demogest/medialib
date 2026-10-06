@@ -25,6 +25,7 @@ var (
 	videoExt = map[string]bool{".mp4": true, ".m4v": true, ".mov": true, ".mkv": true, ".webm": true, ".avi": true, ".wmv": true, ".flv": true, ".ts": true, ".m2ts": true}
 	audioExt = map[string]bool{".mp3": true, ".flac": true, ".m4a": true, ".aac": true, ".wav": true, ".ogg": true, ".opus": true}
 	mp4Ext   = []string{".mp4", ".m4v", ".mov"}
+	subExt   = map[string]bool{".srt": true, ".ass": true, ".ssa": true, ".vtt": true}
 	skipDirs = map[string]bool{"system volume information": true, "$recycle.bin": true, "@eadir": true, "#recycle": true}
 )
 
@@ -40,6 +41,9 @@ func MediaKind(name string) string {
 	}
 	return ""
 }
+
+// IsSubtitle reports whether a file name is a subtitle file a player can load next to a video.
+func IsSubtitle(name string) bool { return subExt[extOf(name)] }
 
 func isMP4(name string) bool {
 	e := extOf(name)
@@ -67,6 +71,9 @@ type Source interface {
 
 // Warner is implemented by sources that notice problems while listing.
 type Warner interface{ Warnings() []string }
+
+// Subtitler is implemented by sources that note the subtitle files they pass while listing (their keys).
+type Subtitler interface{ Subtitles() []string }
 
 // ---------------------------------------------------------------- readers
 
@@ -188,15 +195,17 @@ func fetchRange(url string, start, end int64) ([]byte, error) {
 type LocalSource struct {
 	root     string
 	warnings []string
+	subs     []string
 }
 
-func (s *LocalSource) Warnings() []string { return s.warnings }
+func (s *LocalSource) Warnings() []string  { return s.warnings }
+func (s *LocalSource) Subtitles() []string { return s.subs }
 
 func (s *LocalSource) List() ([]Item, error) {
 	if st, err := os.Stat(s.root); err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("Folder not reachable: %s", s.root)
 	}
-	s.warnings = nil
+	s.warnings, s.subs = nil, nil
 	var items []Item
 	type frame struct{ folder, rel string }
 	stack := []frame{{s.root, ""}}
@@ -237,6 +246,9 @@ func (s *LocalSource) List() ([]Item, error) {
 			}
 			kind := MediaKind(e.Name())
 			if kind == "" {
+				if IsSubtitle(e.Name()) {
+					s.subs = append(s.subs, rel)
+				}
 				continue
 			}
 			var info os.FileInfo
@@ -277,10 +289,14 @@ func (s *LocalSource) Reader(it Item) (Reader, error) {
 type S3Source struct {
 	client *s3.Client
 	lib    config.Library
+	subs   []string
 }
+
+func (s *S3Source) Subtitles() []string { return s.subs }
 
 func (s *S3Source) List() ([]Item, error) {
 	var items []Item
+	s.subs = nil
 	err := s.client.EachObject(s.lib.Bucket, s.lib.Prefix, "", func(o s3.Object) error {
 		if strings.HasSuffix(o.Key, "/") {
 			return nil
@@ -293,6 +309,8 @@ func (s *S3Source) List() ([]Item, error) {
 				dir = rel[:i]
 			}
 			items = append(items, NewItem(o.Key, name, dir, kind, o.Size, o.MTime))
+		} else if IsSubtitle(name) {
+			s.subs = append(s.subs, o.Key)
 		}
 		return nil
 	})
@@ -311,7 +329,10 @@ func (s *S3Source) Reader(it Item) (Reader, error) {
 type RcloneSource struct {
 	tools Tools
 	lib   config.Library
+	subs  []string
 }
+
+func (s *RcloneSource) Subtitles() []string { return s.subs }
 
 func (s *RcloneSource) rclone(timeout time.Duration, args ...string) (string, error) {
 	r, err := proc.Run(timeout, nil, s.tools.Rclone, args...)
@@ -342,7 +363,11 @@ func (s *RcloneSource) List() ([]Item, error) {
 		return nil, err
 	}
 	var items []Item
+	s.subs = nil
 	for _, r := range rows {
+		if IsSubtitle(r.Name) {
+			s.subs = append(s.subs, s.lib.Prefix+r.Path)
+		}
 		if kind := MediaKind(r.Name); kind != "" {
 			dir := ""
 			if i := strings.LastIndex(r.Path, "/"); i >= 0 {

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,6 +43,8 @@ type Item struct {
 	Indexed  bool    `json:"indexed"`
 	Note     string  `json:"note,omitempty"`
 	Error    string  `json:"error,omitempty"`
+	// Subtitle files next to the file and named after it ("Film.srt", "Film.en.ass"): their names, in its folder.
+	Subs []string `json:"subs,omitempty"`
 
 	// FailedWith marks an Error that comes from the file itself: it is the Tools.Stamp of the ffmpeg that failed on it.
 	// Such a file is not tried again until it changes, ffmpeg changes, or someone asks. Empty for errors that may pass
@@ -60,6 +63,14 @@ func NewItem(key, name, dir, kind string, size int64, mtime string) Item {
 	it := newItem(key, name, dir, kind, size, mtime)
 	it.fillPinyin()
 	return it
+}
+
+// SubKey is the key of one of the item's subtitle files.
+func (it *Item) SubKey(name string) string {
+	if i := strings.LastIndexAny(it.Key, `/\`); i >= 0 {
+		return it.Key[:i+1] + name
+	}
+	return name
 }
 
 // fillPinyin makes the search forms of the name and folder, where they are missing and needed.
@@ -250,7 +261,7 @@ func sameItem(a, b *Item) bool {
 	}
 	return a.Ver == b.Ver && a.Key == b.Key && a.Indexed == b.Indexed && a.Frames == b.Frames && coverA == coverB &&
 		a.Error == b.Error && a.Note == b.Note && a.Added == b.Added && a.Duration == b.Duration && a.Width == b.Width &&
-		a.Height == b.Height && a.Codec == b.Codec && a.FPS == b.FPS && a.Audio == b.Audio
+		a.Height == b.Height && a.Codec == b.Codec && a.FPS == b.FPS && a.Audio == b.Audio && slices.Equal(a.Subs, b.Subs)
 }
 
 // numberSnapshot numbers a new snapshot after prev: which items changed in it, and which went away.

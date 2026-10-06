@@ -161,6 +161,9 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 	for _, w := range warnings {
 		rep.Line("Warning: " + w)
 	}
+	if st, ok := source.(Subtitler); ok {
+		attachSubs(listed, st.Subtitles())
+	}
 	prevData, err := LoadLibrary(ix.Cfg, lib)
 	if err != nil {
 		return err
@@ -200,7 +203,7 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 		default:
 			it.Added = now
 		}
-		prev.Added = it.Added
+		prev.Added, prev.Subs = it.Added, it.Subs // subtitles can come and go while the video stays the same
 		current := had && prev.Ver == it.Ver && prev.Indexed && prev.Error == ""
 		// A file that failed with this same ffmpeg would fail again: leave it until it changes or someone asks.
 		failed := had && prev.Ver == it.Ver && prev.Error != "" && prev.FailedWith == stamp && !opt.Retry
@@ -449,6 +452,35 @@ func indexItem(tools Tools, source Source, thumbs string, item Item) (Item, erro
 type openError struct{ error }
 
 func (e openError) Unwrap() error { return e.error }
+
+// attachSubs gives each item the subtitle files in its folder that are named after it: "Film.srt", "Film.en.srt",
+// "Film.forced.ass" for "Film.mkv". Players load those by themselves for a file opened by path, not for a URL.
+func attachSubs(items []Item, subs []string) {
+	if len(subs) == 0 {
+		return
+	}
+	split := func(key string) (dir, name string) {
+		if i := strings.LastIndexAny(key, `/\`); i >= 0 {
+			return key[:i], key[i+1:]
+		}
+		return "", key
+	}
+	byDir := map[string][]string{}
+	for _, k := range subs {
+		d, n := split(k)
+		byDir[d] = append(byDir[d], n)
+	}
+	for i := range items {
+		d, n := split(items[i].Key)
+		stem := strings.ToLower(strings.TrimSuffix(n, filepath.Ext(n))) + "."
+		for _, s := range byDir[d] {
+			if strings.HasPrefix(strings.ToLower(s), stem) {
+				items[i].Subs = append(items[i].Subs, s)
+			}
+		}
+		sort.Strings(items[i].Subs)
+	}
+}
 
 func sizeTime(it Item) string { return strconv.FormatInt(it.Size, 10) + "|" + it.MTime }
 

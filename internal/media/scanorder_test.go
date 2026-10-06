@@ -18,6 +18,8 @@ type planned struct {
 
 func (p planned) Plan(total int, _ string) { *p.totals = append(*p.totals, total) }
 
+var testTime = time.Date(2020, 1, 2, 0, 0, 0, 0, time.UTC)
+
 // broken writes a file that no ffmpeg can read, stamped with the given time.
 func broken(t *testing.T, path string, at time.Time) {
 	t.Helper()

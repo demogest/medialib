@@ -428,3 +428,52 @@ func TestLibraryAnswersWithWhatChanged(t *testing.T) {
 		t.Errorf("unknown version: %v", full)
 	}
 }
+
+func TestSubtitlesAreServedAndFetchedForThePlayer(t *testing.T) {
+	e := setup(t, false)
+	lib, _ := e.cfg.Library("videos")
+	root := config.LocalRoot(lib)
+	if err := os.WriteFile(filepath.Join(root, "Film.en.srt"), []byte("1\n00:00:01,000 --> 00:00:02,000\nHi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	it := media.NewItem("Film.mkv", "Film.mkv", "", "video", 1, "2026-01-01T00:00:00Z")
+	it.Subs = []string{"Film.en.srt"}
+	if _, err := media.SaveLibrary(e.cfg, lib, map[string]media.Item{it.ID: it}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do("GET", "/subs/videos/"+it.ID+"/Film.en.srt", "", remote) // a phone on the network may load it
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Hi") || rec.Header().Get("Content-Security-Policy") != "sandbox" {
+		t.Errorf("local subtitle: %d %q %v", rec.Code, rec.Body.String(), rec.Header())
+	}
+	if rec := e.do("GET", "/subs/videos/"+it.ID+"/..%2Fsecret.srt", ""); rec.Code != 404 {
+		t.Errorf("a name that is not one of its subtitles: %d", rec.Code)
+	}
+
+	// A bucket library: the player gets a copy on this computer, since it would not look next to a URL.
+	bucket := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/media/films/Film.zh.srt" {
+			_, _ = io.WriteString(w, "zh subtitles")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer bucket.Close()
+	conn, err := e.cfg.AddConnection(config.ConnectionForm{Name: strPtr("Store"), Provider: strPtr("minio"), Endpoint: strPtr(bucket.URL),
+		AccessKey: strPtr("AKIAEXAMPLE"), SecretKey: strPtr("secret")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s3lib, err := e.cfg.AddS3Library(conn.ID, "media", "films/", "Films")
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj := media.NewItem("films/Film.mkv", "Film.mkv", "", "video", 1, "2026-01-01T00:00:00Z")
+	obj.Subs = []string{"Film.zh.srt", "Film.gone.srt"}
+	paths := e.app.fetchSubs(s3lib, &obj)
+	if len(paths) != 1 || filepath.Base(paths[0]) != "Film.zh.srt" {
+		t.Fatalf("fetched: %v", paths)
+	}
+	if b, _ := os.ReadFile(paths[0]); string(b) != "zh subtitles" {
+		t.Errorf("content: %q", b)
+	}
+}

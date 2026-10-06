@@ -29,25 +29,26 @@ func legacyPath(indexPath string) string { return filepath.Join(filepath.Dir(ind
 // diskItem is an Item as stored. The id and version follow from the key, size and modification time, the name and
 // kind are usually implied, and a folder is stored once in diskData.Dirs and referred to by number.
 type diskItem struct {
-	Key      string  `json:"k"`
-	Dir      int     `json:"d"`
-	Name     string  `json:"n,omitempty"` // only when it is not the last part of the key
-	Kind     string  `json:"t,omitempty"` // only when it is not "video"
-	Size     int64   `json:"z"`
-	MTime    string  `json:"m"`
-	Added    string  `json:"ad,omitempty"`
-	Duration float64 `json:"du,omitempty"`
-	Width    int     `json:"w,omitempty"`
-	Height   int     `json:"h,omitempty"`
-	Codec    string  `json:"c,omitempty"`
-	FPS      float64 `json:"f,omitempty"`
-	Audio    bool    `json:"a,omitempty"`
-	Frames   int     `json:"fr,omitempty"`
-	Cover    *int    `json:"cv,omitempty"`
-	Indexed  bool    `json:"ix,omitempty"`
-	Note     string  `json:"no,omitempty"`
-	Error    string  `json:"er,omitempty"`
-	Failed   string  `json:"fw,omitempty"`
+	Key      string   `json:"k"`
+	Dir      int      `json:"d"`
+	Name     string   `json:"n,omitempty"` // only when it is not the last part of the key
+	Kind     string   `json:"t,omitempty"` // only when it is not "video"
+	Size     int64    `json:"z"`
+	MTime    string   `json:"m"`
+	Added    string   `json:"ad,omitempty"`
+	Duration float64  `json:"du,omitempty"`
+	Width    int      `json:"w,omitempty"`
+	Height   int      `json:"h,omitempty"`
+	Codec    string   `json:"c,omitempty"`
+	FPS      float64  `json:"f,omitempty"`
+	Audio    bool     `json:"a,omitempty"`
+	Frames   int      `json:"fr,omitempty"`
+	Cover    *int     `json:"cv,omitempty"`
+	Indexed  bool     `json:"ix,omitempty"`
+	Note     string   `json:"no,omitempty"`
+	Error    string   `json:"er,omitempty"`
+	Failed   string   `json:"fw,omitempty"`
+	Subs     []string `json:"sb,omitempty"`
 	// search forms, only for names or folders with Chinese characters
 	NameP string `json:"np,omitempty"`
 	NameI string `json:"ni,omitempty"`
@@ -81,7 +82,7 @@ func encodeData(d Data) ([]byte, error) {
 			dirIdx[it.Dir] = di
 			dd.Dirs = append(dd.Dirs, it.Dir)
 		}
-		x := diskItem{Key: it.Key, Dir: di, Size: it.Size, MTime: it.MTime, Added: it.Added, Failed: it.FailedWith, Duration: it.Duration, Width: it.Width, Height: it.Height,
+		x := diskItem{Key: it.Key, Dir: di, Size: it.Size, MTime: it.MTime, Added: it.Added, Failed: it.FailedWith, Subs: it.Subs, Duration: it.Duration, Width: it.Width, Height: it.Height,
 			Codec: it.Codec, FPS: it.FPS, Audio: it.Audio, Frames: it.Frames, Cover: it.Cover, Indexed: it.Indexed, Note: it.Note, Error: it.Error,
 			NameP: it.NamePinyin, NameI: it.NameInitials, DirP: it.DirPinyin, DirI: it.DirInitials}
 		if it.Name != baseName(it.Key) {
@@ -173,7 +174,7 @@ func decodeData(raw []byte) (*Data, error) {
 			it.fillPinyin() // an index from before pinyin was stored
 			it.Duration, it.Width, it.Height, it.Codec, it.FPS, it.Audio = x.Duration, x.Width, x.Height, x.Codec, x.FPS, x.Audio
 			it.Frames, it.Cover, it.Indexed, it.Note, it.Error = x.Frames, x.Cover, x.Indexed, x.Note, x.Error
-			it.Added, it.FailedWith = x.Added, x.Failed
+			it.Added, it.FailedWith, it.Subs = x.Added, x.Failed, x.Subs
 			d.Items[i] = it
 		}
 	})
