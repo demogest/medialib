@@ -122,10 +122,10 @@ export async function mount(root, parts) {
       h('button.btn.small', { type: 'button', onclick: () => play(shuffled(selectedIds())) }, icon('shuffle', 'sm'), 'Shuffle'),
       h('button.btn.small.primary', { type: 'button', onclick: () => play(selectedIds()) }, icon('play', 'sm'), 'Play')));
   const main = h('section.lib-main', savedRow, banner, warnings,
-    h('div.scopebar', h('div.scope-text', crumbs, stats), h('div.actions', playAll, shuffleAll, moreBtn)), groups, empty, selBar);
+    h('div.scopebar', h('div.scope-text', crumbs, stats), h('div.actions', playAll, shuffleAll, moreBtn)), groups, empty);
 
   const bar = h('header.lib-bar', navToggle, libBtn, h('div.search', icon('search', 'sm'), qInput, saveBtn), h('div.bar-spacer'), sortSel, typesBtn, optBtn, ring);
-  const view = h('div.lib-view', bar, h('div.lib-body', nav, main), scrim);
+  const view = h('div.lib-view', bar, h('div.lib-body', nav, main, selBar), scrim);
   root.append(view);
   if (store.get('treeClosed', '1') === '1') { view.classList.add('tree-closed'); navToggle.setAttribute('aria-expanded', 'false'); }
   const noLibs = h('div.page', { hidden: true }, h('div.page-inner', h('div.card-box.empty-state', icon('library'), h('h3', 'Add your first library'),
