@@ -234,9 +234,13 @@
 .card.selected .cover img { transform: scale(.94); border-radius: 8px; }
 .cover img { transition: transform .12s; }
 .selecting .cover .playhint { display: none; }
+/* The bar floats over the bottom of the covers, centred on them, whatever is scrolled. */
+.lib-body { position: relative; }
+.tree-pane { grid-area: 1 / 1; }
+.lib-main { grid-area: 1 / 2; }
 .selbar {
-  position: sticky; bottom: 16px; z-index: 20; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  width: fit-content; max-width: 100%; margin: 16px auto 0; padding: 8px 10px 8px 8px;
+  grid-area: 1 / 2; align-self: end; justify-self: center; position: relative; z-index: 20; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  width: fit-content; max-width: calc(100% - 32px); margin-bottom: 14px; padding: 8px 10px 8px 8px;
   border: 1px solid var(--rule-strong); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-lg);
 }
 .sel-text { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -269,4 +273,9 @@
 .chip-x:hover { background: var(--hover) !important; color: var(--text) !important; }
 .chip-x .ic { width: 12px; height: 12px; }
 .chip:hover { background: var(--hover); }
-@media (max-width: 860px) { .selbar { bottom: 10px; } .sel-text { white-space: normal; } }
+.selecting .lib-main { padding-bottom: 96px; } /* the last row can scroll out from under the bar */
+@media (max-width: 860px) {
+  .selbar { position: absolute; bottom: 10px; left: 10px; right: 10px; margin: 0 auto; }
+  .sel-text { white-space: normal; }
+  .selecting .lib-main { padding-bottom: 140px; }
+}
