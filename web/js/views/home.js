@@ -11,6 +11,7 @@ import { store } from '../lib/store.js';
 import { contextMenu, toast, toastError } from '../lib/ui.js';
 import { openLibraryAction } from '../shell/sidebar.js';
 import { editConnection } from './connections.js';
+import { playHere } from '../lib/handoff.js';
 
 const thumb = it => `/thumbs/${it.lib}/${it.id}-${it.ver}-${it.cover ?? 0}.avif`;
 const greeting = () => { const hr = new Date().getHours(); return hr < 5 ? 'Good evening' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'; };
@@ -28,7 +29,7 @@ export async function mount(root) {
       toast(`Opening in ${j.player}`, { kind: 'ok' });
       refreshFeed();
     } catch (e) {
-      if (e.status === 403) { window.open(`/media/${it.lib}/${it.id}/${encodeURIComponent(it.name)}`, '_blank'); return; }
+      if (e.status === 403) { playHere(it.lib, it).catch(x => toastError('Could not play', x)); return; }
       toastError('Could not start the player', e);
     }
   }

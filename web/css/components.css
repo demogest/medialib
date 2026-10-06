@@ -160,3 +160,7 @@ dialog::backdrop { background: rgb(8 12 20 / .5); backdrop-filter: blur(2px); }
 .toast .act { margin-left: 4px; padding: 3px 9px; border: 0; border-radius: 6px; background: rgb(255 255 255 / .16); color: inherit; font-weight: 600; }
 .toast .act:hover { background: rgb(255 255 255 / .26); }
 @media (max-width: 860px) { .toasts { bottom: 76px; } }
+
+/* handing a video to a player app on a phone */
+.handoff { display: grid; gap: 8px; margin: 14px 0 6px; }
+.handoff .btn { justify-content: center; }
