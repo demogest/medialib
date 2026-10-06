@@ -24,8 +24,11 @@ jobs:
       - run: git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
       - env:
           GH_TOKEN: ${{ github.token }}
+        # the release's files, as empty stand-ins named like them, so the notes keep their downloads list
         run: |
-          sh scripts/release-notes.sh "$TAG" > release-notes.md
+          mkdir assets
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.assets[].name' | while IFS= read -r name; do : > "assets/$name"; done
+          sh scripts/release-notes.sh "$TAG" assets > release-notes.md
           cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
       - uses: softprops/action-gh-release@v3
         with:
