@@ -477,3 +477,39 @@ func TestSubtitlesAreServedAndFetchedForThePlayer(t *testing.T) {
 		t.Errorf("content: %q", b)
 	}
 }
+
+type noReport struct{}
+
+func (noReport) State(string, string)      {}
+func (noReport) Plan(int, string)          {}
+func (noReport) Progress(int, int, string) {}
+func (noReport) Line(string)               {}
+
+func TestFolderPictureIsServed(t *testing.T) {
+	e := setup(t, true)
+	folder := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(folder, "Show"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"Show/Episode 1.mkv": "not a video", "Show/folder.jpg": "jpeg bytes"} {
+		if err := os.WriteFile(filepath.Join(folder, filepath.FromSlash(name)), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add := decode(t, e.do("POST", "/api/libraries", `{"path": `+quote(folder)+`, "name": "Shows"}`))
+	lib, _ := e.cfg.Library(add["id"].(string))
+	if err := (&media.Indexer{Cfg: e.cfg, Clients: config.NewClients(e.cfg)}).Run(context.Background(), lib, media.Options{}, noReport{}); err != nil {
+		t.Fatal(err)
+	}
+	got := decode(t, e.do("GET", "/api/library?lib="+lib.ID, ""))
+	if art, _ := got["art"].(map[string]any); art["Show"] != "folder.jpg" {
+		t.Fatalf("art: %v", got["art"])
+	}
+	rec := e.do("GET", "/art/"+lib.ID+"?dir=Show", "")
+	if rec.Code != 200 || rec.Body.String() != "jpeg bytes" || rec.Header().Get("Content-Type") != "image/jpeg" || rec.Header().Get("Content-Security-Policy") != "sandbox" {
+		t.Errorf("art: %d %q %v", rec.Code, rec.Body.String(), rec.Header())
+	}
+	if rec := e.do("GET", "/art/"+lib.ID+"?dir=", ""); rec.Code != 404 {
+		t.Errorf("a folder without a picture: %d", rec.Code)
+	}
+}

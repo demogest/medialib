@@ -60,6 +60,7 @@ func (a *App) Handler(web fs.FS) http.Handler {
 	def("GET /api/playlist.m3u8", open, a.playlist)
 	def("GET /media/{rest...}", open, a.media)
 	def("GET /subs/{lib}/{id}/{name}", open, a.subtitle)
+	def("GET /art/{lib}", open, a.folderArt)
 	def("POST /api/play", machine, a.play)
 	def("POST /api/reveal", machine, a.reveal)
 	def("POST /api/libraries", private, a.addLibrary)
@@ -387,6 +388,11 @@ func (a *App) getLibrary(c *Ctx) (any, error) {
 	}
 	d["warnings"] = snap.Data.Warnings
 	d["version"] = snap.Version
+	art := map[string]string{} // folder -> the name of its picture; the page asks /art for it
+	for dir, key := range snap.Data.Art {
+		art[dir] = path.Base(key)
+	}
+	d["art"] = art
 	// A page that has a version already gets only what changed since: while a scan runs, it asks every few seconds,
 	// and a whole big library each time would be megabytes.
 	if since := c.Arg("since"); since != "" {
@@ -559,6 +565,36 @@ func (a *App) subtitle(c *Ctx) (any, error) {
 		return nil, nil
 	}
 	c.W.Header().Set("Cache-Control", "no-store")
+	http.Redirect(c.W, c.R, target, http.StatusFound)
+	return nil, nil
+}
+
+// folderArt serves a folder's own picture (its poster.jpg or folder.jpg): from the folder, or by a link into the
+// bucket.
+func (a *App) folderArt(c *Ctx) (any, error) {
+	lib, err := c.Library(c.P("lib"))
+	if err != nil {
+		return nil, err
+	}
+	snap, err := a.store(lib).Get()
+	if err != nil {
+		return nil, err
+	}
+	key, ok := snap.Data.Art[c.Arg("dir")]
+	if !ok {
+		writeText(c.W, 404, "this folder has no picture")
+		return nil, nil
+	}
+	if lib.Type == "local" {
+		c.W.Header().Set("Cache-Control", "no-cache")
+		return nil, serveLocalFile(c, filepath.Join(config.LocalRoot(lib), filepath.FromSlash(key)))
+	}
+	target, err := media.Presign(a.Cfg, a.Clients, lib, key, 24*time.Hour)
+	if err != nil {
+		writeText(c.W, 502, err.Error())
+		return nil, nil
+	}
+	c.W.Header().Set("Cache-Control", "private, max-age=3600")
 	http.Redirect(c.W, c.R, target, http.StatusFound)
 	return nil, nil
 }

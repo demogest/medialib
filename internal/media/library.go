@@ -101,6 +101,8 @@ type Data struct {
 	Updated  string   `json:"updated"`
 	Warnings []string `json:"warnings"`
 	Items    []Item   `json:"items"`
+	// Art is each folder's own picture (poster.jpg, folder.jpg…), by folder: the key of the picture.
+	Art map[string]string `json:"art,omitempty"`
 }
 
 func libFile(cfg *config.Config, lib config.Library) string {
@@ -109,6 +111,11 @@ func libFile(cfg *config.Config, lib config.Library) string {
 
 // SaveLibrary writes the index atomically. It reports false when the replace was blocked (see below).
 func SaveLibrary(cfg *config.Config, lib config.Library, recs map[string]Item, warnings []string) (bool, error) {
+	return saveLibrary(cfg, lib, recs, warnings, nil)
+}
+
+// saveLibrary is SaveLibrary with the folders' pictures.
+func saveLibrary(cfg *config.Config, lib config.Library, recs map[string]Item, warnings []string, art map[string]string) (bool, error) {
 	items := make([]Item, 0, len(recs))
 	for _, r := range recs {
 		items = append(items, r)
@@ -118,7 +125,7 @@ func SaveLibrary(cfg *config.Config, lib config.Library, recs map[string]Item, w
 		warnings = []string{}
 	}
 	d := Data{Library: lib.ID, Name: lib.Name, Type: lib.Type, Location: config.Location(lib),
-		Updated: time.Now().Format(time.RFC3339), Warnings: warnings, Items: items}
+		Updated: time.Now().Format(time.RFC3339), Warnings: warnings, Items: items, Art: art}
 	text, err := encodeData(d)
 	if err != nil {
 		return false, err

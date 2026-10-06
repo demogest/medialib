@@ -302,6 +302,7 @@ class Api(unittest.TestCase):
         self.put(bkt, "shows/one/clip a.mp4", data, "video/mp4")
         self.put(bkt, "shows/two/clip b.mp4", data, "video/mp4")
         self.put(bkt, "shows/notes.txt", b"not media")
+        self.put(bkt, "shows/one/poster.jpg", b"poster bytes", "image/jpeg")
         lib = self.post("/api/libraries", {"type": "s3", "connection": self.conn, "bucket": bkt, "prefix": "shows", "name": "S3 test"})
         self.assertEqual((lib["type"], lib["location"]), ("s3", f"s3://{bkt}/shows/"))
         job = self.post("/api/index", {"id": lib["id"]})
@@ -325,6 +326,10 @@ class Api(unittest.TestCase):
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/media/{lib['id']}/{it['id']}/x.mp4", headers={"Range": "bytes=4-7"})
         with urllib.request.urlopen(req) as r:
             self.assertEqual((r.status, r.read()), (206, b"ftyp"))
+        # a folder's own picture, by a link into the bucket
+        self.assertEqual(self.get(f"/api/library?lib={lib['id']}")["art"], {"one": "poster.jpg"})
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/art/{lib['id']}?dir=one") as r:
+            self.assertEqual((r.status, r.read()), (200, b"poster bytes"))
 
     def test_edit_library_name_and_location(self):
         bkt = self.bucket("editable")
