@@ -21,7 +21,7 @@ const TOOLS = [
 ];
 const base = p => p.split(/[\\/]/).pop().replace(/\.(exe|app)$/i, '');
 
-export async function mount(root) {
+export async function mount(root, parts = []) {
   const body = h('div');
   root.append(h('div.page', h('div.page-inner',
     h('div.page-head', h('div', h('h1', 'Settings'), h('p', 'How medialib looks, indexes, plays and updates.'))), body)));
@@ -63,7 +63,7 @@ export async function mount(root) {
     return [h('div.section-title', 'Appearance'), h('div.card-box.set-card', row('Theme', 'Follow the system, or pick one.', seg))];
   }
 
-  // ---------------------------------------------------------------- updates
+  // ---------------------------------------------------------------- updates (shown in About)
   function updates() {
     if (!upd) return [];
     const rows = [];
@@ -88,7 +88,7 @@ export async function mount(root) {
     rows.push(row('Automatic updates', info.mode === 'desktop' ? 'Look for a new version every few hours; or also download it, and install it as medialib closes.'
       : 'Look for a new version every few hours and say so here. A server is updated by replacing its program (or image).',
     choice(info.mode === 'desktop' ? UPDATES : UPDATES.slice(0, 2), info.updates === 'auto' && info.mode !== 'desktop' ? 'notify' : info.updates, v => save({ updates: v }), 'Automatic updates')));
-    return [h('div.section-title', 'Updates'), h('div.card-box.set-card', rows)];
+    return rows;
   }
   async function check() {
     try { upd = await post('/api/update', { action: 'check' }); state.update = upd; } catch (e) { toastError('Could not look for updates', e); }
@@ -262,15 +262,16 @@ export async function mount(root) {
 
   // ---------------------------------------------------------------- about
   function about() {
-    return [h('div.section-title', 'About'), h('div.card-box.set-card',
-      row('Media Library', `${info.mode === 'desktop' ? 'Desktop app' : 'Server'} · ${info.platform} · ${info.runtime}`, h('span.mono', info.version)))];
+    return [h('div.section-title#about', 'About'), h('div.card-box.set-card',
+      row('Media Library', `${info.mode === 'desktop' ? 'Desktop app' : 'Server'} · ${info.platform} · ${info.runtime}`, h('span.mono', info.version)),
+      updates())];
   }
 
   function render() {
     if (!info) { fill(body, appearance(), h('div.banner.error', 'Could not read the settings.')); return; }
     fill(body,
       editable() ? null : h('div.banner', icon('info', 'sm'), 'Settings can be changed on the computer running medialib, or after signing in.'),
-      appearance(), updates(), indexing(), playersCard(), cloud(), tools(), files(), about());
+      appearance(), indexing(), playersCard(), cloud(), tools(), files(), about());
   }
 
   offs.push(on('activity', () => {
@@ -278,6 +279,9 @@ export async function mount(root) {
     if (!t) return;
     if (t.state !== 'running') finishMove(t); else render();
   }));
+  // #/settings/about (the sidebar's update button): the version and its updates.
+  const show = p => { if (p[0] === 'about') requestAnimationFrame(() => body.querySelector('#about')?.scrollIntoView({ block: 'start' })); };
   await refresh();
-  return { destroy() { clearInterval(poll); offs.forEach(f => f()); } };
+  show(parts);
+  return { update: show, destroy() { clearInterval(poll); offs.forEach(f => f()); } };
 }
