@@ -114,7 +114,7 @@ func (a *App) Handler(web fs.FS) http.Handler {
 		if err != nil {
 			return nil, err
 		}
-		return a.StartIndex(lib, b.Bool("force")).Snapshot(), nil
+		return a.StartIndex(lib, media.Options{Force: b.Bool("force"), Retry: b.Bool("retry")}).Snapshot(), nil
 	})
 	def("POST /api/pick-folder", machine, a.pickFolder)
 
@@ -258,7 +258,7 @@ func (a *App) Handler(web fs.FS) http.Handler {
 		if err != nil {
 			return nil, err
 		}
-		a.StartIndex(lib, false)
+		a.StartIndex(lib, media.Options{})
 		d, _ := a.Describe(lib)
 		return d, nil
 	})
@@ -422,7 +422,7 @@ func (a *App) updateLibrary(c *Ctx) (any, error) {
 	a.dropStore(id)
 	a.clearLinks()
 	if moved {
-		a.StartIndex(lib, false) // its old index describes another place
+		a.StartIndex(lib, media.Options{}) // its old index describes another place
 	}
 	d, _ := a.Describe(lib)
 	d["moved"] = moved

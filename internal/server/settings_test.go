@@ -236,7 +236,7 @@ func TestNoIndexingWhileTheIndexMoves(t *testing.T) {
 	e.app.mu.Lock()
 	e.app.moving = true
 	e.app.mu.Unlock()
-	j := e.app.StartIndex(lib, false)
+	j := e.app.StartIndex(lib, media.Options{})
 	select {
 	case <-j.Done():
 	case <-time.After(time.Second):

@@ -9,6 +9,7 @@ import { store } from '../lib/store.js';
 import { confirmDialog, contextMenu, modal, showMenu, toast, toastError } from '../lib/ui.js';
 import { locationPicker } from '../lib/picker.js';
 import { editConnection } from './connections.js';
+import { openLibraryAction } from '../shell/sidebar.js';
 
 // Every extension the indexer picks up. Until the user changes the filter, only the common video ones show.
 const KNOWN_TYPES = ['mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mp3', 'flac', 'm4a', 'aac', 'wav', 'ogg', 'opus'];
@@ -29,10 +30,24 @@ const localPath = (root, key) => {
   return root.replace(/[\\/]+$/, '') + sep + key.split('/').join(sep);
 };
 
+// When medialib first found a file (an index from before that was kept: the file's own time).
+const addedAt = it => it.added || it.mtime;
+// Why a file could not be scanned, in plain words, from what ffmpeg or medialib said.
+const REASONS = [
+  [/moov atom not found|end of file|truncat|partial file/i, 'The file is incomplete: still downloading, or cut short.'],
+  [/invalid data|could not find codec|unknown format|not supported|no indexed video track|EBML header parsing failed/i, 'It is damaged, or not a format ffmpeg can read.'],
+  [/no frame could be extracted/i, 'No picture could be read from it.'],
+  [/permission denied|access is denied|403|forbidden/i, 'medialib is not allowed to read it.'],
+  [/no such file|not found|404|cannot find/i, 'It was moved or deleted after the folder was listed.'],
+  [/timed? ?out|deadline exceeded|killed/i, 'Reading it took too long.'],
+  [/internal error/i, 'medialib could not handle this file.'],
+];
+const failReason = msg => (REASONS.find(([re]) => re.test(msg)) || [, 'ffmpeg could not read it.'])[1];
+
 const itemSort = {
   rel: (a, b) => a.rank - b.rank,
   name: (a, b) => collator.compare(a.it.name, b.it.name),
-  new: (a, b) => b.it.mtime.localeCompare(a.it.mtime) || collator.compare(a.it.name, b.it.name),
+  new: (a, b) => addedAt(b.it).localeCompare(addedAt(a.it)) || collator.compare(a.it.name, b.it.name),
   size: (a, b) => b.it.size - a.it.size,
   dur: (a, b) => (b.it.duration || 0) - (a.it.duration || 0),
 };
@@ -159,7 +174,7 @@ export async function mount(root, parts) {
     };
     const row = (k, v) => (v == null || v === '' ? null : [h('dt', k), h('dd', v)]);
     const res = resLabel(it.width, it.height);
-    const status = it.error ? 'Failed: ' + it.error : it.indexed === false ? 'No cover yet'
+    const status = it.error ? h('span', { title: it.error }, 'Could not be scanned: ' + failReason(it.error)) : it.indexed === false ? 'No cover yet'
       : plural(frames, 'keyframe') + (it.note ? ' (read with ffmpeg)' : '');
     const meta = h('dl.det-meta',
       row('Folder', h('button.linkish', { type: 'button', title: 'Show this folder', onclick: () => { m.close(); go(it.dir); } }, it.dir || 'Top level')),
@@ -168,6 +183,7 @@ export async function mount(root, parts) {
       row('Picture', it.width ? `${it.width} × ${it.height}` + (res ? ' · ' + res : '') + (it.fps ? ` · ${it.fps} fps` : '') : null),
       row('Codec', it.codec ? it.codec + (it.kind === 'video' ? (it.audio ? ' · with sound' : ' · no sound') : '') : null),
       row(S.info.type === 'local' ? 'Modified' : 'Uploaded', h('span', { title: it.mtime }, when(it.mtime))),
+      row('Added', it.added && it.added !== it.mtime ? h('span', { title: it.added }, when(it.added)) : null),
       row(S.info.type === 'local' ? 'File' : 'Object', h('code.det-path', filePath(it))),
       row('Index', status));
     const m = modal({
@@ -421,7 +437,7 @@ export async function mount(root, parts) {
       if (rank < g.best) g.best = rank;
       g.size += it.size;
       g.dur += it.duration || 0;
-      if (it.mtime > g.newest) g.newest = it.mtime;
+      if (addedAt(it) > g.newest) g.newest = addedAt(it);
     }
     const frag = document.createDocumentFragment();
     S.visibleIds = [];
@@ -474,7 +490,7 @@ export async function mount(root, parts) {
     for (const e of g.entries) {
       if (!e.it.frames) continue;
       let pos = covers.length;
-      while (pos > 0 && covers[pos - 1].mtime < e.it.mtime) pos--;
+      while (pos > 0 && addedAt(covers[pos - 1]) < addedAt(e.it)) pos--;
       if (pos < 4) { covers.splice(pos, 0, e.it); covers.length = Math.min(covers.length, 4); }
     }
     const ids = () => g.entries.map(e => e.it.id);
@@ -686,8 +702,31 @@ export async function mount(root, parts) {
       if (l.id === S.lib) navigate('library', j.active);
     } catch (e) { toastError('Could not remove', e); }
   }
-  async function startIndex(id, force = false) {
-    try { state.jobs[id] = await post('/api/index', { id, force }); paintBanner(); pokeWatcher(); } catch (e) { toastError('Could not start indexing', e); }
+  async function startIndex(id, force = false, retry = false) {
+    try { state.jobs[id] = await post('/api/index', { id, force, retry }); paintBanner(); pokeWatcher(); } catch (e) { toastError('Could not start indexing', e); }
+  }
+
+  // ---------------------------------------------------------------- files that could not be scanned
+  const failedItems = () => S.items.filter(it => it.error);
+  function showFailed() {
+    const list = h('ul.fail-list');
+    const m = modal({
+      title: 'Files that could not be scanned', size: 'wide', body: h('div', h('p.hint',
+        'These files have no cover. Scans leave them alone until they change; try again after replacing a file or updating ffmpeg.'), list),
+      actions: [{ label: 'Close', left: true, value: false },
+        { label: 'Try again', primary: true, onClick: () => startIndex(S.lib, false, true) }],
+    });
+    const paint = () => {
+      const items = failedItems().sort((a, b) => collator.compare(a.key, b.key));
+      if (!items.length) { fill(list, h('li.fail-row.muted', 'Every file has been scanned.')); return; }
+      fill(list, items.map(it => h('li.fail-row',
+        h('div.grow', h('div.fail-name', it.name), h('div.fail-dir.muted', it.dir || 'Top level'),
+          h('div.fail-why', failReason(it.error)), h('div.fail-raw.mono', it.error)),
+        h('div.fail-actions',
+          canReveal() ? h('button.btn.small', { type: 'button', onclick: () => showInFolder(it) }, revealLabel()) : null,
+          h('button.btn.small', { type: 'button', onclick: () => { m.close(); openLibraryAction('reveal', { lib: S.lib, dir: it.dir, id: it.id }); } }, 'Show in library')))));
+    };
+    paint();
   }
 
   // ---------------------------------------------------------------- add a library
@@ -756,11 +795,16 @@ export async function mount(root, parts) {
       msg = info.updated ? 'No videos were found here.' : 'This library hasn’t been scanned yet.';
       detail = info.updated ? 'Add videos to the folder, then scan again.' : 'A scan finds the videos and makes a cover for each.'; act = info.updated ? 'Scan again' : 'Scan for videos';
     } else if (pending) { msg = `${plural(pending, 'video')} without a cover yet.`; act = 'Make covers'; }
+    let failed = 0;
+    if (!msg && !running(job) && (failed = failedItems().length)) {
+      msg = `${plural(failed, 'file')} could not be scanned.`; detail = 'They have no cover. See why, then try again once they are fixed.'; kind = 'warn';
+    }
     banner.hidden = !msg;
     banner.className = 'banner lib-banner ' + kind;
     fill(banner, h('div.grow', h('strong', msg), detail ? h('div.banner-detail', detail) : null),
       edit ? h('button.btn', { type: 'button', onclick: () => manageLibraries() }, 'Edit library…') : null,
-      act ? h('button.btn', { type: 'button', class: kind ? '' : 'primary', onclick: () => startIndex(S.lib) }, act) : null);
+      act ? h('button.btn', { type: 'button', class: kind ? '' : 'primary', onclick: () => startIndex(S.lib) }, act) : null,
+      failed ? h('button.btn', { type: 'button', onclick: () => showFailed() }, 'See which') : null);
     fill(warnings, (info.warnings || []).map(w => h('li', w)));
     warnings.hidden = !warnings.children.length;
   }
@@ -810,7 +854,10 @@ export async function mount(root, parts) {
     }
     if (anyFinished) loadLibraries().catch(() => {});  // a finished run changes a library's item count and indexed time
     paintBanner();
-    if (finished && now.state === 'done') toast('Scan finished: every cover is up to date', { kind: 'ok' });
+    if (finished && now.state === 'done') {
+      if (now.errors) toast(`Scan finished. ${plural(now.errors, 'file')} could not be scanned.`, { kind: 'error', ms: 8000, action: { label: 'See which', run: showFailed } });
+      else toast('Scan finished: every cover is up to date', { kind: 'ok' });
+    }
   }));
 
   // ---------------------------------------------------------------- type filter

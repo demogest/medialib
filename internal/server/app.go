@@ -265,7 +265,7 @@ func trimRight(s string, c byte) string {
 // ---------------------------------------------------------------- indexing jobs
 
 // StartIndex begins indexing a library in the background (or returns the run already going).
-func (a *App) StartIndex(lib config.Library, force bool) *media.Job {
+func (a *App) StartIndex(lib config.Library, opt media.Options) *media.Job {
 	a.mu.Lock()
 	if j := a.jobs[lib.ID]; j != nil && media.Running(j.Snapshot().State) {
 		a.mu.Unlock()
@@ -282,7 +282,7 @@ func (a *App) StartIndex(lib config.Library, force bool) *media.Job {
 	a.mu.Unlock()
 	go func() {
 		defer job.Finish()
-		if err := a.Indexer.Run(context.Background(), lib, media.Options{Force: force}, job); err != nil {
+		if err := a.Indexer.Run(context.Background(), lib, opt, job); err != nil {
 			job.Fail(err)
 		}
 	}()
@@ -331,7 +331,7 @@ func (a *App) AutoIndex(ctx context.Context, every time.Duration) {
 				continue
 			}
 			select {
-			case <-a.StartIndex(lib, false).Done():
+			case <-a.StartIndex(lib, media.Options{}).Done():
 			case <-ctx.Done():
 				return
 			}

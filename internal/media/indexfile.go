@@ -35,6 +35,7 @@ type diskItem struct {
 	Kind     string  `json:"t,omitempty"` // only when it is not "video"
 	Size     int64   `json:"z"`
 	MTime    string  `json:"m"`
+	Added    string  `json:"ad,omitempty"`
 	Duration float64 `json:"du,omitempty"`
 	Width    int     `json:"w,omitempty"`
 	Height   int     `json:"h,omitempty"`
@@ -46,6 +47,7 @@ type diskItem struct {
 	Indexed  bool    `json:"ix,omitempty"`
 	Note     string  `json:"no,omitempty"`
 	Error    string  `json:"er,omitempty"`
+	Failed   string  `json:"fw,omitempty"`
 	// search forms, only for names or folders with Chinese characters
 	NameP string `json:"np,omitempty"`
 	NameI string `json:"ni,omitempty"`
@@ -79,7 +81,7 @@ func encodeData(d Data) ([]byte, error) {
 			dirIdx[it.Dir] = di
 			dd.Dirs = append(dd.Dirs, it.Dir)
 		}
-		x := diskItem{Key: it.Key, Dir: di, Size: it.Size, MTime: it.MTime, Duration: it.Duration, Width: it.Width, Height: it.Height,
+		x := diskItem{Key: it.Key, Dir: di, Size: it.Size, MTime: it.MTime, Added: it.Added, Failed: it.FailedWith, Duration: it.Duration, Width: it.Width, Height: it.Height,
 			Codec: it.Codec, FPS: it.FPS, Audio: it.Audio, Frames: it.Frames, Cover: it.Cover, Indexed: it.Indexed, Note: it.Note, Error: it.Error,
 			NameP: it.NamePinyin, NameI: it.NameInitials, DirP: it.DirPinyin, DirI: it.DirInitials}
 		if it.Name != baseName(it.Key) {
@@ -171,6 +173,7 @@ func decodeData(raw []byte) (*Data, error) {
 			it.fillPinyin() // an index from before pinyin was stored
 			it.Duration, it.Width, it.Height, it.Codec, it.FPS, it.Audio = x.Duration, x.Width, x.Height, x.Codec, x.FPS, x.Audio
 			it.Frames, it.Cover, it.Indexed, it.Note, it.Error = x.Frames, x.Cover, x.Indexed, x.Note, x.Error
+			it.Added, it.FailedWith = x.Added, x.Failed
 			d.Items[i] = it
 		}
 	})

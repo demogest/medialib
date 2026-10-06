@@ -55,7 +55,7 @@ Every release lists its files and has a `SHA256SUMS` to check them against (`sha
 
 ## What's in it
 
-**Home**: what you played lately and what is new in every library, one click from playing, and each library as a tile of its newest covers. Until there is a library, it is the setup guide above.
+**Home**: what you played lately and what is new in every library, one click from playing, and each library as a tile of its newest covers. *Recently added* means new to medialib: a file copied in with its old date kept still shows up there, and what arrived since your last visit is marked *New*. Until there is a library, it is the setup guide above.
 
 **Library**
 - Folders as cards with their own covers, or every video grouped by folder (*All videos*); a folder tree; sort by name, date, size or length. **Play all**, **Shuffle**, or save a folder as a playlist.
@@ -115,6 +115,7 @@ or in a container: `docker compose up -d` (see [`docker-compose.yml`](docker-com
 - Serve it over HTTPS, for example behind Caddy or nginx: the password is sent with every request.
 - Playing in an external player and the folder picker act on the computer running the server, so they are for a browser on that computer. From another computer a cover plays in the browser, and **Copy playlist link** hands a folder to your own player.
 - New files show up after the next scan. Set **`MEDIALIB_AUTO_INDEX`** (or `"auto_index"`) to a number of minutes and the server scans every library by itself: soon after it starts, then that long after each pass. A library that cannot be reached at the time (a disk that is not plugged in) is skipped, not marked as failed. Without a server running, `medialib index --all` from cron or a scheduled task does the same once.
+- A scan does the newest files first. A file ffmpeg cannot read is listed under **N files could not be scanned → See which**, with the reason; scans leave it alone until the file changes or ffmpeg is updated. **Try again** there (or `medialib index --retry`) tries those files once more.
 - `MEDIALIB_HOST`, `MEDIALIB_PORT`, `MEDIALIB_HOME` and `MEDIALIB_LOG=1` (a log line per request) are read from the environment, which is how the container is configured. `GET /healthz` answers `ok` without a password.
 
 ### Command line

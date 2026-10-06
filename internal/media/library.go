@@ -28,6 +28,7 @@ type Item struct {
 	Kind     string  `json:"kind"` // video | audio
 	Size     int64   `json:"size"`
 	MTime    string  `json:"mtime"`
+	Added    string  `json:"added,omitempty"` // when a scan first found the file (its MTime for files found by the first scan)
 	Ver      string  `json:"ver"`
 	Duration float64 `json:"duration,omitempty"`
 	Width    int     `json:"width,omitempty"`
@@ -40,6 +41,11 @@ type Item struct {
 	Indexed  bool    `json:"indexed"`
 	Note     string  `json:"note,omitempty"`
 	Error    string  `json:"error,omitempty"`
+
+	// FailedWith marks an Error that comes from the file itself: it is the Tools.Stamp of the ffmpeg that failed on it.
+	// Such a file is not tried again until it changes, ffmpeg changes, or someone asks. Empty for errors that may pass
+	// by themselves (the file could not be opened). Not part of the API's JSON.
+	FailedWith string `json:"-"`
 
 	// Pinyin forms of the name and of the folder (see search.Pinyin), kept with the index so a search does not have to
 	// convert every name again. Empty for names without Chinese characters. Not part of the API's JSON.

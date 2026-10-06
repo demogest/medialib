@@ -96,6 +96,8 @@
 .badge { position: absolute; padding: 4px 6px; border-radius: 5px; background: rgb(0 0 0 / .72); color: #fff; font-size: 11.5px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; transition: bottom .12s; }
 .badge.tl { top: 7px; left: 7px; }
 .badge.br { right: 7px; bottom: 7px; }
+.badge.tr { top: 7px; right: 7px; }
+.badge.new { background: var(--accent); color: var(--accent-ink); }
 .ticks { position: absolute; left: 8px; right: 8px; bottom: 5px; display: flex; gap: 3px; opacity: 0; transition: opacity .12s; }
 .ticks i { flex: 1; height: 3px; border-radius: 2px; background: rgb(255 255 255 / .45); }
 .ticks i.on { background: #fff; }
@@ -143,6 +145,17 @@
 .lib-meta { color: var(--muted); font-size: 12.5px; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .lib-meta .meter { margin-top: 5px; max-width: 320px; }
 .lib-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+/* files that could not be scanned */
+.fail-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 60vh; overflow-y: auto; }
+.fail-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 11px 0; border-bottom: 1px solid var(--rule); }
+.fail-row:last-child { border-bottom: 0; }
+.fail-row .grow { flex: 1 1 260px; min-width: 0; }
+.fail-name { font-weight: 650; overflow-wrap: anywhere; }
+.fail-dir, .fail-raw { font-size: 12.5px; overflow-wrap: anywhere; }
+.fail-why { margin-top: 3px; }
+.fail-raw { color: var(--muted); margin-top: 2px; }
+.fail-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* location picker (shared with the storage view) */
 .picker { display: grid; gap: 8px; }

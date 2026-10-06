@@ -1,12 +1,15 @@
 package media
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"image"
 	_ "image/jpeg" // decoders for coverScore
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -199,6 +202,22 @@ type Tools struct {
 	FFprobe string
 	Rclone  string
 	Quality int // thumbnail quality 1-100 (0: DefaultThumbQuality)
+}
+
+// Stamp names this ffmpeg and ffprobe: their paths, sizes and modification times. It changes when either is
+// upgraded or replaced, so files they could not read get another try.
+func (t Tools) Stamp() string {
+	h := sha1.New()
+	for _, p := range []string{t.FFmpeg, t.FFprobe} {
+		if lp, err := exec.LookPath(p); err == nil {
+			p = lp
+		}
+		fmt.Fprint(h, p, "|")
+		if st, err := os.Stat(p); err == nil {
+			fmt.Fprint(h, st.Size(), "|", st.ModTime().UnixNano(), "|")
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)[:5])
 }
 
 func nonEmpty(sz int64, err error) bool { return err == nil && sz > 0 }

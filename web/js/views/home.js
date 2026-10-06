@@ -34,12 +34,18 @@ export async function mount(root) {
   }
 
   // ---------------------------------------------------------------- shelves
+  // What arrived since the last visit is marked New. The mark stays for this visit; the next one starts from now.
+  const seen = store.get('homeSeen', '');
+  store.set('homeSeen', new Date().toISOString().replace(/\.\d+Z$/, 'Z'));
+  const isNew = it => seen && (it.added || it.mtime) > seen;
+
   function card(it, sub) {
     const cover = h('div.shelf-cover', it.frames ? h('img', { src: thumb(it), alt: '', loading: 'lazy', decoding: 'async' })
       : h('div.ph', icon(it.kind === 'audio' ? 'music' : 'film', 'lg')));
     if (it.duration) cover.append(h('span.badge.br', clock(it.duration)));
     const res = resLabel(it.width, it.height);
     if (res) cover.append(h('span.badge.tl', res));
+    if (sub === addedSub && isNew(it)) cover.append(h('span.badge.tr.new', 'New'));
     cover.append(h('span.play-fab', icon('play')));
     return h('button.shelf-card', { type: 'button', title: `${it.name}\n${it.lib_name}${it.dir ? ' › ' + it.dir : ''}`, onclick: () => play(it),
       oncontextmenu: e => contextMenu(e, [
@@ -94,7 +100,7 @@ export async function mount(root) {
         h('span.grow', `Making covers for ${scans[0].name}`, h('span.muted', ' · new videos appear as they are done')),
         progress(state.jobs[scans[0].id])) : null,
       shelf('Recently played', feed.played, it => `${it.lib_name} · ${ago(it.played)}`, clear),
-      shelf('Recently added', feed.added, it => `${it.lib_name} · ${ago(it.mtime)}`),
+      shelf('Recently added', feed.added, addedSub),
       h('section.shelf', h('header.shelf-head', h('h2', 'Libraries')),
         h('div.lib-tiles', state.libs.map(tile),
           h('button.lib-tile.add', { type: 'button', onclick: () => openLibraryAction('add') }, h('div.tile-mosaic', h('div.ph', icon('plus', 'lg'))),
@@ -102,6 +108,7 @@ export async function mount(root) {
       !feed.added.length && !scans.length && state.libs.every(l => !l.items) ? h('p.home-hint.muted', icon('info', 'sm'),
         'Open a library and choose ', h('strong', 'Scan for videos'), ' to make its covers.') : null);
   }
+  function addedSub(it) { return `${it.lib_name} · ${ago(it.added || it.mtime)}`; }
   const progress = j => j && j.total ? h('progress', { max: j.total, value: j.done }) : null;
 
   // ---------------------------------------------------------------- first run
