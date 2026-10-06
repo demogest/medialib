@@ -1,5 +1,6 @@
 # Writes the generated notes (scripts/release-notes.sh) into a release that already exists, leaving its files alone:
-# for a release made before the notes were automatic, or after changing a tag's message.
+# for a release made before the notes were automatic, after changing a tag's message, or after labelling its pull
+# requests (bug, enhancement) to sort them under Fixes and Features.
 name: release-notes
 on:
   workflow_dispatch:
@@ -14,13 +15,16 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: read # the labels that sort changes in the notes
     env:
       TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
       - run: git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
-      - run: |
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
           sh scripts/release-notes.sh "$TAG" > release-notes.md
           cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
       - uses: softprops/action-gh-release@v3

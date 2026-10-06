@@ -169,6 +169,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: read # the labels that sort changes in the notes
     env:
       VERSION: ${{ needs.check.outputs.version }}
       PUBLISH: ${{ needs.check.outputs.publish }}
@@ -187,6 +188,8 @@ jobs:
         with: { path: build, merge-multiple: true }
       # the builds' own outputs become medialib-<version>-<os>-<arch>[-<kind>] archives (scripts/package-release.sh)
       - name: Package, checksums and notes
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           sh scripts/package-release.sh "$VERSION" build dist
           (cd dist && sha256sum -- * > ../SHA256SUMS) && mv SHA256SUMS dist/
