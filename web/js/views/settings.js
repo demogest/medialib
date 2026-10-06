@@ -26,7 +26,10 @@ export async function mount(root, parts = []) {
   root.append(h('div.page', h('div.page-inner',
     h('div.page-head', h('div', h('h1', 'Settings'), h('p', 'How medialib looks, indexes, plays and updates.'))), body)));
 
-  let info = null, upd = null, moving = null, poll = null;
+  let info = null, upd = null, moving = null, poll = null, installing = false;
+  // One bar for the whole update, kept across renders so it glides from value to value instead of starting over.
+  const bar = h('progress.set-progress', { max: 100 });
+  const setBar = pct => { if (pct === null) bar.removeAttribute('value'); else bar.value = pct; return bar; };
   const offs = [];
   const editable = () => !!info?.can_edit;
   const here = () => !!info?.on_machine; // dialogs and folders open on this screen
@@ -71,8 +74,11 @@ export async function mount(root, parts = []) {
       // done and total are left out of the JSON while 0; with no size known, the bar just shows that something is happening.
       const done = upd.done || 0, total = upd.total || 0;
       const pct = total ? Math.min(100, Math.round(100 * done / total)) : null;
-      rows.push(row(`Downloading ${upd.latest}…`, pct === null ? (done ? `${bytes(done)} so far` : 'Starting…') : `${bytes(done)} of ${bytes(total)} · ${pct}%`,
-        h('progress.set-progress', pct === null ? { max: 100 } : { max: 100, value: pct })));
+      const hint = total && done >= total ? 'Putting the new version in place…'
+        : pct === null ? (done ? `${bytes(done)} so far` : 'Starting…') : `${bytes(done)} of ${bytes(total)} · ${pct}%`;
+      rows.push(row(`Downloading ${upd.latest}…`, hint, setBar(pct)));
+    } else if (upd.ready && installing) {
+      rows.push(row(`Restarting with ${upd.latest}…`, 'medialib closes and opens again by itself.', setBar(100)));
     } else if (upd.ready) {
       rows.push(row(`Version ${upd.latest} is ready`, 'Restart medialib to finish the update.',
         here() ? btn('Restart now', () => install(), { primary: true, icon: 'refresh' }) : null));
@@ -100,18 +106,21 @@ export async function mount(root, parts = []) {
   }
   async function install() {
     try {
+      setBar(0);
       upd = await post('/api/update', { action: 'install' });
+      installing = true;
       render();
       watchUpdate();
     } catch (e) { toastError('Could not update', e); }
   }
-  // While the update downloads: its progress; then the app closes and the new version opens by itself.
+  // While the update downloads: its progress, read often (a release is a few MB and can arrive in under a second);
+  // then the app closes and the new version opens by itself.
   function watchUpdate() {
     clearInterval(poll);
     poll = setInterval(async () => {
       try { upd = await get('/api/update'); state.update = upd; render(); } catch { clearInterval(poll); toast('Restarting with the new version…', { ms: 10000 }); return; }
-      if (upd.state === 'error') { clearInterval(poll); toastError('The update failed', upd.error); }
-    }, 1000);
+      if (upd.state === 'error') { clearInterval(poll); installing = false; render(); toastError('The update failed', upd.error); }
+    }, 250);
   }
   // What changed in every version since this one (or in this one, when it is the latest), newest first.
   function notes(u) {

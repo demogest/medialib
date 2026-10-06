@@ -456,6 +456,9 @@ func (a *App) updateAction(c *Ctx) (any, error) {
 				return // the status says what went wrong
 			}
 			if a.Updates.Finish(true) == nil {
+				// A release is a few MB and often downloads in well under a second: give the page that asked a moment to
+				// read "ready" and say it is restarting, rather than vanish mid-download.
+				time.Sleep(1500 * time.Millisecond)
 				a.Quit()
 			}
 		}()
