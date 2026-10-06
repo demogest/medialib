@@ -81,9 +81,13 @@ export async function mount(root, parts = []) {
       rows.push(row(`Restarting with ${upd.latest}…`, 'medialib closes and opens again by itself.', setBar(100)));
     } else if (upd.ready) {
       rows.push(row(`Version ${upd.latest} is ready`, 'Restart medialib to finish the update.',
+        upd.notes ? btn('What’s new', () => notes(upd)) : null,
         here() ? btn('Restart now', () => install(), { primary: true, icon: 'refresh' }) : null));
     } else if (upd.available) {
-      rows.push(row(`Version ${upd.latest} is available`, upd.can_install ? `You have ${upd.current}.${upd.published ? ' Released ' + ago(upd.published) + '.' : ''}` : upd.why,
+      // A download that failed leaves the update on offer: say why it stopped, and Update now tries again.
+      const hint = upd.state === 'error' && upd.error ? upd.error
+        : upd.can_install ? `You have ${upd.current}.${upd.published ? ' Released ' + ago(upd.published) + '.' : ''}` : upd.why;
+      rows.push(row(`Version ${upd.latest} is available`, hint,
         upd.notes ? btn('What’s new', () => notes(upd)) : null,
         upd.can_install && here() ? btn('Update now', () => install(), { primary: true, icon: 'download' })
           : upd.page ? h('a.btn.small', { href: upd.page, target: '_blank', rel: 'noopener' }, icon('external', 'sm'), 'Download') : null));
@@ -91,7 +95,6 @@ export async function mount(root, parts = []) {
       rows.push(row('Could not look for updates', upd.error, btn('Try again', () => check())));
     } else {
       rows.push(row(upd.latest ? 'medialib is up to date' : 'Updates', upd.checked ? `Version ${upd.current} · looked ${ago(upd.checked)}` : `Version ${upd.current}`,
-        upd.latest && upd.notes ? btn('What’s new', () => notes(upd)) : null,
         btn('Check now', () => check(), { icon: 'refresh' })));
     }
     rows.push(row('Automatic updates', info.mode === 'desktop' ? 'Look for a new version every time medialib starts; or also download it, and install it as medialib closes.'
@@ -122,7 +125,7 @@ export async function mount(root, parts = []) {
       if (upd.state === 'error') { clearInterval(poll); installing = false; render(); toastError('The update failed', upd.error); }
     }, 250);
   }
-  // What changed in every version since this one (or in this one, when it is the latest), newest first.
+  // What changed in every version since this one, newest first.
   function notes(u) {
     const list = u.releases && u.releases.length ? u.releases : [{ version: u.latest, notes: u.notes, published: u.published, page: u.page }];
     const title = list.length > 1 ? `What’s new since ${u.current}` : `What’s new in ${list[0].version}`;
@@ -133,7 +136,7 @@ export async function mount(root, parts = []) {
       return els.length ? els : h('p.muted', 'This release has no notes.');
     };
     modal({ title, size: 'wide', body: h('div.notes', list.map(r => h('section.notes-release',
-      h('h2.notes-version', `Version ${r.version}`, r.version === u.current ? h('span.notes-when', ' · the one you have') : null,
+      h('h2.notes-version', `Version ${r.version}`,
         r.published ? h('span.notes-when', ` · released ${ago(r.published)}`) : null),
       body(r)))),
       actions: [page ? { label: 'Open on GitHub', left: true, onClick: () => window.open(page, '_blank') } : null,
