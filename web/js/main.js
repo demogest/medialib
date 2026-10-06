@@ -26,9 +26,10 @@ async function boot() {
     toastError('Could not reach the server', e);
   }
   startWatcher();
-  // The server looks for a new version itself, soon after it starts and every few hours: read what it found.
+  // The server looks for a new version itself as it starts (and once a day after): read what it found.
   if (state.system?.can_edit) {
     loadUpdate();
+    setTimeout(loadUpdate, 5000);
     setTimeout(loadUpdate, 40000);
     setInterval(loadUpdate, 3600000);
   }
