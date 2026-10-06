@@ -35,7 +35,10 @@ const (
 
 var thumbExts = []string{extAVIF, extWebP, extJPEG}
 
-var thumbFormats sync.Map // ffmpeg path and quality -> thumbFormat
+var (
+	thumbFormats   sync.Map   // ffmpeg path and quality -> thumbFormat
+	thumbFormatsMu sync.Mutex // so the workers of a run that all start at once ask ffmpeg once, not once each
+)
 
 type thumbFormat struct {
 	ext       string   // final thumbnails
@@ -52,6 +55,11 @@ func (t Tools) format() thumbFormat {
 		q = DefaultThumbQuality
 	}
 	key := t.FFmpeg + "|" + strconv.Itoa(q)
+	if v, ok := thumbFormats.Load(key); ok {
+		return v.(thumbFormat)
+	}
+	thumbFormatsMu.Lock()
+	defer thumbFormatsMu.Unlock()
 	if v, ok := thumbFormats.Load(key); ok {
 		return v.(thumbFormat)
 	}
@@ -103,6 +111,36 @@ func (t Tools) convertImage(src, dst string) bool {
 	return true
 }
 
+// convertImages re-encodes several image files into the final format in one ffmpeg process, which costs about a third
+// less than one process each. It reports which ones landed; each dst is complete or absent, never partial.
+func (t Tools) convertImages(srcs, dsts []string) []bool {
+	f := t.format()
+	ok := make([]bool, len(srcs))
+	a := []string{"-v", "error"}
+	for _, src := range srcs {
+		a = append(a, "-i", src)
+	}
+	parts := make([]string, len(dsts))
+	for i, dst := range dsts {
+		parts[i] = dst + ".part"
+		a = append(append(a, "-map", strconv.Itoa(i)+":v"), f.args...)
+		if f.muxer != "" {
+			a = append(a, "-f", f.muxer)
+		}
+		a = append(a, "-y", parts[i])
+	}
+	r, err := proc.Run(120*time.Second, nil, t.FFmpeg, a...)
+	whole := err == nil && r.ExitCode == 0 // a failed run may have left some parts unfinished: keep none
+	for i, part := range parts {
+		if whole && nonEmpty(fileSize(part)) && os.Rename(part, dsts[i]) == nil {
+			ok[i] = true
+			continue
+		}
+		_ = os.Remove(part)
+	}
+	return ok
+}
+
 // Finalize turns the frames ffmpeg wrote into the final format (a no-op unless that is AVIF). A frame that cannot be
 // converted stays as it is: the server finds it under any extension.
 func (t Tools) Finalize(paths []string) []string {
@@ -111,18 +149,33 @@ func (t Tools) Finalize(paths []string) []string {
 		return paths
 	}
 	out := make([]string, len(paths))
-	var wg sync.WaitGroup
+	dsts := make([]string, len(paths))
 	for i, p := range paths {
 		out[i] = p
+		dsts[i] = strings.TrimSuffix(p, filepath.Ext(p)) + f.ext
+	}
+	// All of a file's frames in one process; any that does not come out that way is tried again on its own.
+	var done []bool
+	if len(paths) > 1 {
+		frameSem <- struct{}{}
+		done = t.convertImages(paths, dsts)
+		<-frameSem
+	}
+	var wg sync.WaitGroup
+	for i, p := range paths {
+		if done != nil && done[i] {
+			_ = os.Remove(p)
+			out[i] = dsts[i]
+			continue
+		}
 		wg.Add(1)
 		go func(i int, p string) {
 			defer wg.Done()
 			frameSem <- struct{}{}
 			defer func() { <-frameSem }()
-			dst := strings.TrimSuffix(p, filepath.Ext(p)) + f.ext
-			if t.convertImage(p, dst) {
+			if t.convertImage(p, dsts[i]) {
 				_ = os.Remove(p)
-				out[i] = dst
+				out[i] = dsts[i]
 			}
 		}(i, p)
 	}
@@ -222,16 +275,24 @@ func cleanFrames(stem string, n int, ext string) {
 	}
 }
 
-// grabSeek seeks to t seconds in a file or URL and writes one frame.
+// grabSeek seeks to t seconds in a file or URL and writes one frame: the keyframe at or before t, as the MP4 fast
+// path picks. That is the first frame decoded, but it is stamped before t, and ffmpeg's default frame rate handling
+// drops such frames: without -fps_mode passthrough it decodes and throws away every frame up to t (up to a whole GOP,
+// seconds per cover at a 10 s keyframe interval, and on S3 all of its bytes). Where the seek lands short of a keyframe
+// (MPEG-TS), -skip_frame nokey skips decoding up to it. A stream whose keyframes are not flagged gives nothing that
+// way, so it is tried again decoding every frame.
 func (t Tools) grabSeek(target string, at float64, out string) bool {
-	for _, vf := range []string{scale, scaleBT709} {
-		a := []string{"-v", "error", "-threads", "1", "-noaccurate_seek", "-ss", fmt.Sprintf("%.2f", at), "-i", target, "-map", "0:v:0", "-frames:v", "1", "-vf", vf}
-		_, err := proc.Run(180*time.Second, nil, t.FFmpeg, append(append(a, t.format().frameArgs...), "-y", out)...)
-		if err != nil {
-			return false
-		}
-		if nonEmpty(fileSize(out)) {
-			return true
+	for _, skip := range [][]string{{"-skip_frame", "nokey"}, nil} {
+		for _, vf := range []string{scale, scaleBT709} {
+			a := append(append([]string{"-v", "error", "-threads", "1"}, skip...), "-noaccurate_seek", "-ss", fmt.Sprintf("%.2f", at), "-i", target,
+				"-map", "0:v:0", "-frames:v", "1", "-fps_mode", "passthrough", "-vf", vf)
+			_, err := proc.Run(180*time.Second, nil, t.FFmpeg, append(append(a, t.format().frameArgs...), "-y", out)...)
+			if err != nil {
+				return false
+			}
+			if nonEmpty(fileSize(out)) {
+				return true
+			}
 		}
 	}
 	return false

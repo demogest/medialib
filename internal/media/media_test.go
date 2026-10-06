@@ -295,3 +295,75 @@ func TestBatchDecodingMatchesFrameByFrame(t *testing.T) {
 		})
 	}
 }
+
+// A seek between keyframes gives the keyframe before it, not a frame decoded up to the seek point.
+func TestGrabSeekBetweenKeyframes(t *testing.T) {
+	if !haveFFmpeg() {
+		t.Skip("ffmpeg is not installed")
+	}
+	dir := t.TempDir()
+	clip := filepath.Join(dir, "clip.mkv")
+	makeClip(t, clip, "-c:v", "libx264", "-g", "120", "-an") // one keyframe every 5 s
+	tools := Tools{FFmpeg: "ffmpeg", FFprobe: "ffprobe"}
+	var got [][]byte
+	for i, at := range []float64{0, 2.5, 5.5} {
+		out := filepath.Join(dir, fmt.Sprintf("f%d%s", i, tools.FrameExt()))
+		if !tools.grabSeek(clip, at, out) {
+			t.Fatalf("no frame at %.1fs", at)
+		}
+		b, _ := os.ReadFile(out)
+		got = append(got, b)
+	}
+	if string(got[1]) != string(got[0]) {
+		t.Error("the seek to 2.5s did not give the keyframe at 0s")
+	}
+	if string(got[2]) == string(got[0]) {
+		t.Error("the seek to 5.5s did not give the keyframe at 5s")
+	}
+}
+
+// Converting a file's frames in one ffmpeg process must give the very same files as converting them one by one.
+func TestBatchConversionMatchesOneByOne(t *testing.T) {
+	if !haveFFmpeg() {
+		t.Skip("ffmpeg is not installed")
+	}
+	tools := Tools{FFmpeg: "ffmpeg", FFprobe: "ffprobe"}
+	if tools.Ext() == tools.FrameExt() {
+		t.Skip("this ffmpeg cannot write AVIF")
+	}
+	dir := t.TempDir()
+	clip := filepath.Join(dir, "clip.mkv")
+	makeClip(t, clip, "-c:v", "libx264", "-an")
+	var frames []string
+	for i, at := range []float64{0.5, 2, 3.5, 5} {
+		out := filepath.Join(dir, fmt.Sprintf("f%d%s", i, tools.FrameExt()))
+		if !tools.grabSeek(clip, at, out) {
+			t.Fatalf("no frame at %.1fs", at)
+		}
+		frames = append(frames, out)
+	}
+	var single [][]byte
+	for i, p := range frames {
+		dst := filepath.Join(dir, fmt.Sprintf("single%d%s", i, tools.Ext()))
+		if !tools.convertImage(p, dst) {
+			t.Fatalf("frame %d: one-by-one conversion failed", i)
+		}
+		b, _ := os.ReadFile(dst)
+		single = append(single, b)
+	}
+	got := tools.Finalize(frames)
+	for i, p := range got {
+		if filepath.Ext(p) != tools.Ext() {
+			t.Fatalf("frame %d not converted: %s", i, p)
+		}
+		if _, err := os.Stat(frames[i]); !os.IsNotExist(err) {
+			t.Errorf("frame %d: the source frame was left behind", i)
+		}
+		if b, _ := os.ReadFile(p); string(b) != string(single[i]) {
+			t.Errorf("frame %d differs between batch and one-by-one conversion", i)
+		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*.part")); len(left) > 0 {
+		t.Errorf("partial files left: %v", left)
+	}
+}
