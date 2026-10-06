@@ -100,7 +100,15 @@ Unit tests sit beside the code (`*_test.go`); a change to the API wants a case i
 - **Interface text** is plain language, as [docs/DESIGN.md](docs/DESIGN.md) sets out: *scan* and *covers*, not *index* and *keyframes*; KB, MB and GB; *Added 3 d ago*; sentence-case headings. Every empty or broken state says what happened and offers the one action that fixes it. Never show `127.0.0.1` or a port.
 - **Settings**: a new `config.json` key goes in `internal/config`, the README's configuration table and `config.example.json` if it belongs there. Keys medialib does not know are kept when it saves the file.
 - **Pull requests** are squash-merged: the PR's title becomes the commit's title, a heading in the release notes, and its description the text under it. So write the title for someone reading what changed, and the description as the list of changes.
-- **Titles starting with "Fix"** (`Fix …`, `fix: …`, `fix(ui): …`), and pull requests labelled **bug**, go out in the next automatic bug-fix release (see below). Use them for bug fixes only.
+- **Say what kind of change it is** at the start of the title. The release notes put every change under one of three headings, and the prefix (or the label) decides which; the notes leave the prefix out, so the heading reads *Keep covers when a scan stops*, not *fix: keep covers …*:
+
+  | Kind | Title | Or the label | In the notes |
+  |---|---|---|---|
+  | A bug fix | `fix: …`, `fix(ui): …` or `Fix …` | **bug** | **Fixes**, and out in the next automatic bug-fix release (see below) |
+  | Something new, or something that works better | `feat: …`, `feat(search): …` | **enhancement** | **Features** |
+  | Anything else: docs, CI, builds, dependencies, refactoring | `docs: …`, `ci: …`, `build: …`, `chore: …`, `refactor: …`, `test: …`, or no prefix | | **Other changes** |
+
+  Use `fix` for bug fixes only: it releases the change by itself. A title can name a part of the app in brackets (`feat(player): …`). A pull request that was merged with the wrong kind can be labelled afterwards, and its release's notes written again (see below).
 - **Versions** are not edited by hand: `VERSION`, `winres/versioninfo.json`, the `.syso` files and the installer's `AppVersion` are set by `scripts/set-version.sh`, which the release workflow runs after each release.
 - **Generated files**: the Windows resources (`resource_windows_*.syso`) come from `winres/` with `go generate ./cmd/medialib`; the icon from `go run ./scripts/genicon`. Both are committed, so a plain `go build` has them.
 - Never commit `config.json`, `cache/` or `dist/` (they are in `.gitignore`).
@@ -131,7 +139,7 @@ Bug fixes are released by themselves, every other day, all together. New feature
 
 1. builds every download (the version goes into the program, the Windows file properties and the installer);
 2. packs them under their release names (`scripts/package-release.sh`);
-3. once all of them have built, publishes the release with `SHA256SUMS` and generated notes: every change since the previous version, from the commit messages;
+3. once all of them have built, publishes the release with `SHA256SUMS` and generated notes: every change since the previous version, from the commit messages, under **Fixes**, **Features** and **Other changes** by each title's prefix or its pull request's label (see the table above);
 4. writes the version back into `main`: `VERSION` and the Windows version files, with `scripts/set-version.sh`, in a commit of its own (*Set the version to X.Y.Z, as released*). `VERSION` always says which full release came last. A pre-release, or a fix release of an older version, leaves them as they are.
 
-`scripts/release-notes.sh v3.4.0` shows the notes beforehand. **Actions → release-notes → Run workflow** writes the notes into a release that already exists, leaving its files alone.
+`scripts/release-notes.sh v3.4.0` shows the notes beforehand (with `GH_TOKEN` set it reads the pull requests' labels too; without it only the titles sort the changes). **Actions → release-notes → Run workflow** writes the notes into a release that already exists, leaving its files alone: run it after labelling a pull request that landed under the wrong heading.

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Writes the release notes of a version as Markdown: the tag's own message when it says more than a title, every
-# change since the previous version (each commit's title and text, so a squash-merged pull request brings its list of
-# changes), the downloads, and a link to the full comparison.
+# change since the previous version grouped under Fixes, Features and Other changes (each commit's title and text, so a
+# squash-merged pull request brings its list of changes), the downloads, and a link to the full comparison.
 #
 #   scripts/release-notes.sh v3.2.0 [dist/] > notes.md       dist/: the files being released, for the downloads list
 #
@@ -41,32 +41,52 @@ if [ "$(git cat-file -t "refs/tags/$tag" 2>/dev/null || true)" = tag ]; then
   fi
 fi
 
-if [ -n "$prev" ]; then
-  echo "## Changes since $prev"
-else
-  echo "## Changes"
+# Each change goes under Fixes, Features or Other changes, by its title's prefix ("fix: …", "Fix …", "feat: …") or the
+# labels of its pull request (bug, enhancement); the same test of a fix as the release workflow's. Labels need gh and
+# GH_TOKEN; without them the title alone decides.
+labels() {
+  [ -n "${GH_TOKEN:-}" ] && command -v gh >/dev/null 2>&1 || return 0
+  gh api "repos/$repo/commits/$1/pulls" --jq '.[].labels[].name' 2>/dev/null || true
+}
+kind() { # kind SHA TITLE -> fix, feat or other
+  if printf '%s\n' "$2" | grep -Eq '^[Ff]ix(es|ed)?[ :(!]'; then echo fix; return; fi
+  if printf '%s\n' "$2" | grep -Eiq '^feat(ure)?(\([^)]*\))?!?:'; then echo feat; return; fi
+  if printf '%s\n' "$2" | grep -Eiq '^(build|chore|ci|deps|docs|perf|refactor|revert|style|tests?)(\([^)]*\))?!?:'; then echo other; return; fi
+  l=$(labels "$1")
+  if printf '%s\n' "$l" | grep -qx bug; then echo fix
+  elif printf '%s\n' "$l" | grep -Eqx 'enhancement|feature'; then echo feat
+  else echo other; fi
+}
+# The title without its type ("fix(ui): keep …" -> "Keep …"), as the section says it.
+heading() {
+  printf '%s\n' "$1" | sed -E 's/^(fix(es|ed)?|feat(ure)?|build|chore|ci|deps|docs|perf|refactor|revert|style|tests?)(\([^)]*\))?!?:[[:space:]]*//I' |
+    awk '{ print toupper(substr($0, 1, 1)) substr($0, 2) }'
+}
+# A commit's text without the trailers (Co-Authored-By: and the like).
+text() {
+  git log -1 --format=%b "$1" | awk '
+    /^[A-Za-z][A-Za-z-]*: / && !/^- / { next }  # trailer
+    /^-{3,}[ \t]*$/ { next }  # the line GitHub puts between squashed commits
+    /^[ \t]*$/ { if (out != "") blank = 1; next }
+    { if (blank) { out = out "\n"; blank = 0 } out = out $0 "\n" }
+    END { if (out != "") printf "\n%s", out }'
+}
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+: > "$tmp/fix"; : > "$tmp/feat"; : > "$tmp/other"
+for c in $(git rev-list --no-merges --invert-grep --grep="$skip" "$range"); do
+  title=$(git log -1 --format=%s "$c")
+  [ -n "$title" ] || continue
+  { printf '### %s\n' "$(heading "$title")"; text "$c"; echo; } >> "$tmp/$(kind "$c" "$title")"
+done
+if [ ! -s "$tmp/fix" ] && [ ! -s "$tmp/feat" ] && [ ! -s "$tmp/other" ]; then
+  printf 'No changes since %s yet.\n\n' "${prev:-the start}"
 fi
-echo
-if [ -z "$(git rev-list --no-merges --invert-grep --grep="$skip" --max-count=1 "$range")" ]; then
-  printf 'No changes yet.\n\n'
-fi
-# Each commit: its title as a heading, then its text without the trailers (Co-Authored-By: and the like).
-git log --no-merges --invert-grep --grep="$skip" --format='%x1e%s%x1f%b' "$range" | awk '
-  BEGIN { RS = "\036"; FS = "\037" }
-  NF == 0 || $1 == "" { next }
-  {
-    printf "### %s\n", $1
-    n = split($2, lines, "\n")
-    out = ""; blank = 0
-    for (i = 1; i <= n; i++) {
-      line = lines[i]
-      if (line ~ /^[A-Za-z][A-Za-z-]*: / && line !~ /^- /) continue  # trailer
-      if (line ~ /^[ \t]*$/) { if (out != "") blank = 1; continue }
-      if (blank) { out = out "\n"; blank = 0 }
-      out = out line "\n"
-    }
-    printf "%s\n", (out == "" ? "" : "\n" out)
-  }'
+for k in fix:Fixes feat:Features other:'Other changes'; do
+  [ -s "$tmp/${k%%:*}" ] || continue
+  printf '## %s\n\n' "${k#*:}"
+  cat "$tmp/${k%%:*}"
+done
 
 # The downloads: the files in DIST_DIR (the ones being released), each described from its name. Without one (notes
 # written into a release that already has its files) there is no list.
