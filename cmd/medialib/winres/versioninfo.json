@@ -1,7 +1,7 @@
 {
 	"FixedFileInfo": {
-		"FileVersion": { "Major": 3, "Minor": 5, "Patch": 1, "Build": 0 },
-		"ProductVersion": { "Major": 3, "Minor": 5, "Patch": 1, "Build": 0 },
+		"FileVersion": { "Major": 3, "Minor": 6, "Patch": 0, "Build": 0 },
+		"ProductVersion": { "Major": 3, "Minor": 6, "Patch": 0, "Build": 0 },
 		"FileFlagsMask": "3f",
 		"FileFlags ": "00",
 		"FileOS": "040004",
@@ -12,12 +12,12 @@
 		"Comments": "Self-hosted media library and object-storage browser",
 		"CompanyName": "",
 		"FileDescription": "Media Library",
-		"FileVersion": "3.5.1",
+		"FileVersion": "3.6.0",
 		"InternalName": "medialib",
 		"LegalCopyright": "",
 		"OriginalFilename": "medialib.exe",
 		"ProductName": "Media Library",
-		"ProductVersion": "3.5.1"
+		"ProductVersion": "3.6.0"
 	},
 	"VarFileInfo": { "Translation": { "LangID": "0409", "CharsetID": "04B0" } },
 	"IconPath": "winres/icon.ico",
