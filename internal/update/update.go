@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -65,23 +66,35 @@ type release struct {
 
 // Status is what the Settings page shows about updates.
 type Status struct {
-	Current    string `json:"current"`
-	Latest     string `json:"latest,omitempty"`
-	Available  bool   `json:"available"`           // Latest is newer than Current
-	Page       string `json:"page,omitempty"`      // the release's page
-	Notes      string `json:"notes,omitempty"`     // its notes (Markdown)
-	Published  string `json:"published,omitempty"` // when it came out
-	Asset      string `json:"asset,omitempty"`     // the download that updates this copy
-	Size       int64  `json:"size,omitempty"`
-	CanInstall bool   `json:"can_install"`   // this copy can update itself to Latest
-	Why        string `json:"why,omitempty"` // why it cannot
-	State      string `json:"state"`         // idle | downloading | ready | error
-	Done       int64  `json:"done,omitempty"`
-	Total      int64  `json:"total,omitempty"`
-	Ready      bool   `json:"ready"` // the update is in place, or its setup is downloaded: a restart finishes it
-	Checked    string `json:"checked,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Current    string    `json:"current"`
+	Latest     string    `json:"latest,omitempty"`
+	Available  bool      `json:"available"`           // Latest is newer than Current
+	Page       string    `json:"page,omitempty"`      // the release's page
+	Notes      string    `json:"notes,omitempty"`     // its notes (Markdown)
+	Published  string    `json:"published,omitempty"` // when it came out
+	Releases   []Release `json:"releases,omitempty"`  // what changed: every release after Current up to Latest, newest first; Latest alone when there is no update
+	Asset      string    `json:"asset,omitempty"`     // the download that updates this copy
+	Size       int64     `json:"size,omitempty"`
+	CanInstall bool      `json:"can_install"`   // this copy can update itself to Latest
+	Why        string    `json:"why,omitempty"` // why it cannot
+	State      string    `json:"state"`         // idle | downloading | ready | error
+	Done       int64     `json:"done,omitempty"`
+	Total      int64     `json:"total,omitempty"`
+	Ready      bool      `json:"ready"` // the update is in place, or its setup is downloaded: a restart finishes it
+	Checked    string    `json:"checked,omitempty"`
+	Error      string    `json:"error,omitempty"`
 }
+
+// Release is a published version and its notes.
+type Release struct {
+	Version   string `json:"version"`
+	Published string `json:"published,omitempty"`
+	Page      string `json:"page,omitempty"`
+	Notes     string `json:"notes,omitempty"` // Markdown
+}
+
+// maxReleases bounds the notes an update shows: a copy many versions behind gets the latest ones.
+const maxReleases = 20
 
 // Updater checks for and installs updates of the program it runs in. It is safe for concurrent use.
 type Updater struct {
@@ -154,6 +167,10 @@ func (u *Updater) Check(ctx context.Context, maxAge time.Duration) Status {
 	u.mu.Unlock()
 
 	rel, err := u.latest(ctx)
+	var releases []Release
+	if err == nil {
+		releases = u.releases(ctx, rel)
+	}
 
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -166,7 +183,7 @@ func (u *Updater) Check(ctx context.Context, maxAge time.Duration) Status {
 		return u.statusLocked()
 	}
 	st := Status{State: "idle", Latest: strings.TrimPrefix(rel.Tag, "v"), Page: rel.Page, Notes: rel.Body, Published: rel.Published,
-		Checked: u.checked.UTC().Format(time.RFC3339)}
+		Releases: releases, Checked: u.checked.UTC().Format(time.RFC3339)}
 	st.Available = Newer(rel.Tag, u.Current)
 	u.asset, u.sums, u.kind = nil, nil, ""
 	name, kind := u.assetName(rel.Tag)
@@ -236,6 +253,50 @@ func (u *Updater) latest(ctx context.Context) (*release, error) {
 		return nil, errors.New("GitHub's latest release has no version.")
 	}
 	return &rel, nil
+}
+
+// releases are the notes of every release after this copy's version up to latest, newest first. They are one more
+// request, made only when latest is newer; if it fails, the latest release's notes are all there is.
+func (u *Updater) releases(ctx context.Context, latest *release) []Release {
+	out := []Release{noteOf(latest)}
+	if !Newer(latest.Tag, u.Current) {
+		return out
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", or(u.API, "https://api.github.com")+"/repos/"+Repo+"/releases?per_page=50", nil)
+	if err != nil {
+		return out
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "medialib/"+u.Current)
+	res, err := u.client().Do(req)
+	if err != nil {
+		return out
+	}
+	defer res.Body.Close()
+	var all []release
+	if res.StatusCode != 200 || json.NewDecoder(io.LimitReader(res.Body, 16<<20)).Decode(&all) != nil {
+		return out
+	}
+	var between []release
+	for _, r := range all {
+		if !r.Draft && !r.Prerelease && r.Tag != latest.Tag && Newer(r.Tag, u.Current) && Newer(latest.Tag, r.Tag) {
+			between = append(between, r)
+		}
+	}
+	sort.SliceStable(between, func(i, j int) bool { return Newer(between[i].Tag, between[j].Tag) })
+	for _, r := range between {
+		if len(out) == maxReleases {
+			break
+		}
+		out = append(out, noteOf(&r))
+	}
+	return out
+}
+
+func noteOf(r *release) Release {
+	return Release{Version: strings.TrimPrefix(r.Tag, "v"), Published: r.Published, Page: r.Page, Notes: r.Body}
 }
 
 // assetName is the release file that updates this copy, and how it is applied.

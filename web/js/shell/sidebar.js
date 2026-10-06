@@ -52,7 +52,7 @@ export function buildSidebar(root, { onSearch }) {
       h('a.mini', { href: href('connections'), 'aria-label': 'Connections', title: 'Add or edit connections' }, icon('plus', 'sm'))),
     conns);
   const themeBtn = h('button.icon-btn.theme-btn', { type: 'button', onclick: toggleTheme });
-  const updateBtn = h('a.nav-item.update-pill', { href: href('settings'), hidden: true });
+  const updateBtn = h('a.nav-item.update-pill', { href: href('settings', 'about'), hidden: true });
   const busy = h('a.busy-chip', { href: href('activity'), hidden: true, title: 'Activity' });
   const storageTab = tab('storage', 'Storage', 'storage', { class: 'mobile-only', hidden: true });
 
