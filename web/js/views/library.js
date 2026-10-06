@@ -2,7 +2,8 @@
 import { h, fill, $, $$, Scope, debounce } from '../lib/dom.js';
 import { icon, kindIcon } from '../lib/icons.js';
 import { get, post, put } from '../lib/api.js';
-import { ago, bytes, clock, collator, extOf, leaf, num, plural, resLabel, span, stem, when } from '../lib/fmt.js';
+import { ago, bytes, clock, collator, extOf, leaf, num, resLabel, span, stem, when } from '../lib/fmt.js';
+import { t } from '../lib/i18n.js';
 import { href, navigate, replace } from '../lib/router.js';
 import { loadLibraries, loadConnections, on, pokeWatcher, running, state, takeLibraryAction } from '../lib/state.js';
 import { store } from '../lib/store.js';
@@ -15,17 +16,17 @@ import { openLibraryAction } from '../shell/sidebar.js';
 // Every extension the indexer picks up. Until the user changes the filter, only the common video ones show.
 const KNOWN_TYPES = ['mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mp3', 'flac', 'm4a', 'aac', 'wav', 'ogg', 'opus'];
 const COMMON_VIDEO = new Set(['mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', 'wmv']);
-const defaultHidden = () => new Set(KNOWN_TYPES.filter(t => !COMMON_VIDEO.has(t)));
+const defaultHidden = () => new Set(KNOWN_TYPES.filter(x => !COMMON_VIDEO.has(x)));
 const sameSet = (a, b) => a.size === b.size && [...a].every(x => b.has(x));
 const shuffled = list => { const a = [...list]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const inScope = (it, s) => !s || it.dir === s || it.dir.startsWith(s + '/');
-const TYPE_LABEL = { local: 'Local folder', s3: 'S3 bucket', rclone: 'S3 via rclone' };
+const TYPE_LABEL = { local: t('library.typeLocal'), s3: t('library.typeS3'), rclone: t('library.typeRclone') };
 // A file's path on the computer running medialib, written the way that computer writes paths (D:\Videos\a.mp4 on
 // Windows, /srv/videos/a.mp4 elsewhere), whatever computer the browser is on.
 // A browser on the computer that serves the library (the desktop app, or one next to the server): only there can
 // medialib open a folder on the screen.
 const onThisComputer = () => ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(location.hostname);
-const revealLabel = () => ({ windows: 'Show in Explorer', darwin: 'Show in Finder' })[(state.system?.platform || '').split('/')[0]] || 'Show in file manager';
+const revealLabel = () => ({ windows: t('library.showInExplorer'), darwin: t('library.showInFinder') })[(state.system?.platform || '').split('/')[0]] || t('library.showInFileManager');
 const localPath = (root, key) => {
   const sep = /^[A-Za-z]:|^\\\\|\\/.test(root) ? '\\' : '/';
   return root.replace(/[\\/]+$/, '') + sep + key.split('/').join(sep);
@@ -35,15 +36,15 @@ const localPath = (root, key) => {
 const addedAt = it => it.added || it.mtime;
 // Why a file could not be scanned, in plain words, from what ffmpeg or medialib said.
 const REASONS = [
-  [/moov|end of file|truncat|partial file/i, 'The file is incomplete: still downloading, or cut short.'],
-  [/invalid data|could not find codec|unknown format|not supported|no indexed video track|EBML header parsing failed/i, 'It is damaged, or not a format ffmpeg can read.'],
-  [/no frame could be extracted/i, 'No picture could be read from it.'],
-  [/permission denied|access is denied|403|forbidden/i, 'medialib is not allowed to read it.'],
-  [/no such file|not found|404|cannot find/i, 'It was moved or deleted after the folder was listed.'],
-  [/timed? ?out|deadline exceeded|killed/i, 'Reading it took too long.'],
-  [/internal error/i, 'medialib could not handle this file.'],
+  [/moov|end of file|truncat|partial file/i, t('library.reasonIncomplete')],
+  [/invalid data|could not find codec|unknown format|not supported|no indexed video track|EBML header parsing failed/i, t('library.reasonDamaged')],
+  [/no frame could be extracted/i, t('library.reasonNoPicture')],
+  [/permission denied|access is denied|403|forbidden/i, t('library.reasonNotAllowed')],
+  [/no such file|not found|404|cannot find/i, t('library.reasonMoved')],
+  [/timed? ?out|deadline exceeded|killed/i, t('library.reasonTooLong')],
+  [/internal error/i, t('library.reasonInternal')],
 ];
-const failReason = msg => (REASONS.find(([re]) => re.test(msg)) || [, 'ffmpeg could not read it.'])[1];
+const failReason = msg => (REASONS.find(([re]) => re.test(msg)) || [, t('library.reasonUnreadable')])[1];
 
 const itemSort = {
   rel: (a, b) => a.rank - b.rank,
@@ -80,47 +81,47 @@ export async function mount(root, parts) {
 
   // ---------------------------------------------------------------- skeleton
   const libBtn = h('button.btn.lib-switch', { type: 'button', 'aria-haspopup': 'menu', onclick: e => openSwitcher(e.currentTarget) });
-  const qInput = h('input.input', { type: 'search', placeholder: 'Search names   ( / )', 'aria-label': 'Search names', autocomplete: 'off',
-    title: 'Names, folders, codecs, pinyin; typos are forgiven.\nFilters, alone or with words: dur>1h  size<2g  date>=2024-05  res>=1080' });
-  const sortSel = h('select', { 'aria-label': 'Sort' }, [['rel', 'Best match'], ['name', 'Name'], ['new', 'Newest'], ['size', 'Largest'], ['dur', 'Longest']].map(([v, t]) => h('option', { value: v }, t)));
+  const qInput = h('input.input', { type: 'search', placeholder: t('library.searchPlaceholder'), 'aria-label': t('library.searchNames'), autocomplete: 'off',
+    title: t('library.searchTitle') });
+  const sortSel = h('select', { 'aria-label': t('library.sort') }, [['rel', t('library.sortBest')], ['name', t('library.sortName')], ['new', t('library.sortNewest')], ['size', t('library.sortLargest')], ['dur', t('library.sortLongest')]].map(([v, label]) => h('option', { value: v }, label)));
   if (S.sort === 'rel') S.sort = 'name'; // "Best match" only means something while searching
   sortSel.value = S.sort;
   const saveBtn = h('button.icon-btn.small.save-search', { type: 'button', hidden: true, onclick: () => toggleSaved() }, icon('star', 'sm'));
-  const savedRow = h('div.saved-searches', { hidden: true, role: 'list', 'aria-label': 'Saved searches' });
-  const typesBtn = h('button.btn', { type: 'button', 'aria-haspopup': 'true', onclick: e => openTypes(e.currentTarget) }, icon('filter', 'sm'), h('span.types-label', 'Types'));
-  const optBtn = h('button.btn.icon-only', { type: 'button', 'aria-label': 'View options', title: 'Player and cover size', onclick: e => openOptions(e.currentTarget) }, icon('sliders', 'sm'));
+  const savedRow = h('div.saved-searches', { hidden: true, role: 'list', 'aria-label': t('library.savedSearches') });
+  const typesBtn = h('button.btn', { type: 'button', 'aria-haspopup': 'true', onclick: e => openTypes(e.currentTarget) }, icon('filter', 'sm'), h('span.types-label', t('library.types')));
+  const optBtn = h('button.btn.icon-only', { type: 'button', 'aria-label': t('library.viewOptions'), title: t('library.viewOptionsTitle'), onclick: e => openOptions(e.currentTarget) }, icon('sliders', 'sm'));
   const ringText = h('span.ring-text');
   const ringBar = h('circle.ring-bar', { cx: 18, cy: 18, r: 15 });
   const ring = h('button.ring', { type: 'button', hidden: true, onclick: () => manageLibraries() },
     (() => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 36 36'); s.innerHTML = '<circle class="ring-track" cx="18" cy="18" r="15"/><circle class="ring-bar" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100"/>'; return s; })(), ringText);
-  const navToggle = h('button.icon-btn.nav-toggle', { type: 'button', 'aria-label': 'Folders', title: 'Show or hide folders', 'aria-expanded': 'true', onclick: () => toggleTree() }, icon('folder'));
+  const navToggle = h('button.icon-btn.nav-toggle', { type: 'button', 'aria-label': t('library.folders'), title: t('library.toggleFolders'), 'aria-expanded': 'true', onclick: () => toggleTree() }, icon('folder'));
 
   const tree = h('ul.tree');
-  const nav = h('aside.tree-pane', { 'aria-label': 'Folders' },
-    h('div.nav-head', h('span', 'Folders'), h('button.icon-btn', { type: 'button', 'aria-label': 'Close folders', onclick: () => toggleTree() }, icon('x'))), tree);
+  const nav = h('aside.tree-pane', { 'aria-label': t('library.folders') },
+    h('div.nav-head', h('span', t('library.folders')), h('button.icon-btn', { type: 'button', 'aria-label': t('library.closeFolders'), onclick: () => toggleTree() }, icon('x'))), tree);
   const scrim = h('div.scrim', { hidden: true, onclick: () => navOpen(false) });
 
   const banner = h('div.banner.lib-banner', { hidden: true });
   const warnings = h('ul.warnings', { hidden: true });
   const crumbs = h('ol.crumbs');
   const stats = h('div.stats');
-  const playAll = h('button.btn.primary', { type: 'button', onclick: () => play(S.visibleIds) }, icon('play', 'sm'), 'Play all');
-  const shuffleAll = h('button.btn', { type: 'button', title: 'Play everything shown, in random order', onclick: () => play(shuffled(S.visibleIds)) }, icon('shuffle', 'sm'), 'Shuffle');
+  const playAll = h('button.btn.primary', { type: 'button', onclick: () => play(S.visibleIds) }, icon('play', 'sm'), t('library.playAll'));
+  const shuffleAll = h('button.btn', { type: 'button', title: t('library.shuffleTitle'), onclick: () => play(shuffled(S.visibleIds)) }, icon('shuffle', 'sm'), t('library.shuffle'));
   // On this computer a playlist is saved as a file of real links (paths, links into the bucket) that any player opens
   // without medialib; a browser elsewhere copies the playlist's address on this server instead.
   const plQuery = () => `lib=${encodeURIComponent(S.lib)}&dir=${encodeURIComponent(S.scope)}` + (S.hidden.size ? '&hide=' + encodeURIComponent([...S.hidden].join(',')) : '');
-  const moreBtn = h('button.btn.icon-only', { type: 'button', 'aria-label': 'More', title: 'Playlist, scan, library settings', 'aria-haspopup': 'menu', onclick: e => openMore(e.currentTarget) }, icon('more'));
+  const moreBtn = h('button.btn.icon-only', { type: 'button', 'aria-label': t('common.more'), title: t('library.moreTitle'), 'aria-haspopup': 'menu', onclick: e => openMore(e.currentTarget) }, icon('more'));
   const groups = h('div#groups');
-  const empty = h('p.empty', { hidden: true }, 'Nothing here matches.');
+  const empty = h('p.empty', { hidden: true }, t('library.nothingMatches'));
   const selText = h('div.sel-text');
-  const selBar = h('div.selbar', { hidden: true, role: 'toolbar', 'aria-label': 'Selected videos' },
-    h('button.icon-btn.small', { type: 'button', 'aria-label': 'Clear the selection', title: 'Clear the selection (Esc)', onclick: () => clearSelection() }, icon('x', 'sm')),
+  const selBar = h('div.selbar', { hidden: true, role: 'toolbar', 'aria-label': t('library.selectedVideos') },
+    h('button.icon-btn.small', { type: 'button', 'aria-label': t('library.clearSelection'), title: t('library.clearSelectionTitle'), onclick: () => clearSelection() }, icon('x', 'sm')),
     selText,
     h('div.sel-actions',
-      h('button.btn.small', { type: 'button', title: 'Select every video shown (Ctrl A)', onclick: () => selectAll() }, 'Select all'),
-      h('button.btn.small.icon-only', { type: 'button', 'aria-label': 'Playlist of the selection', title: 'Playlist of the selection', onclick: () => selectionPlaylist() }, icon(onThisComputer() ? 'download' : 'link', 'sm')),
-      h('button.btn.small', { type: 'button', onclick: () => play(shuffled(selectedIds())) }, icon('shuffle', 'sm'), 'Shuffle'),
-      h('button.btn.small.primary', { type: 'button', onclick: () => play(selectedIds()) }, icon('play', 'sm'), 'Play')));
+      h('button.btn.small', { type: 'button', title: t('library.selectAllTitle'), onclick: () => selectAll() }, t('library.selectAll')),
+      h('button.btn.small.icon-only', { type: 'button', 'aria-label': t('library.selectionPlaylist'), title: t('library.selectionPlaylist'), onclick: () => selectionPlaylist() }, icon(onThisComputer() ? 'download' : 'link', 'sm')),
+      h('button.btn.small', { type: 'button', onclick: () => play(shuffled(selectedIds())) }, icon('shuffle', 'sm'), t('library.shuffle')),
+      h('button.btn.small.primary', { type: 'button', onclick: () => play(selectedIds()) }, icon('play', 'sm'), t('common.play'))));
   const main = h('section.lib-main', savedRow, banner, warnings,
     h('div.scopebar', h('div.scope-text', crumbs, stats), h('div.actions', playAll, shuffleAll, moreBtn)), groups, empty);
 
@@ -128,53 +129,54 @@ export async function mount(root, parts) {
   const view = h('div.lib-view', bar, h('div.lib-body', nav, main, selBar), scrim);
   root.append(view);
   if (store.get('treeClosed', '1') === '1') { view.classList.add('tree-closed'); navToggle.setAttribute('aria-expanded', 'false'); }
-  const noLibs = h('div.page', { hidden: true }, h('div.page-inner', h('div.card-box.empty-state', icon('library'), h('h3', 'Add your first library'),
-    h('p', 'A library is a folder on a disk or NAS share, or a folder in an object-store bucket. medialib indexes it and shows keyframe covers you can click to play.'),
+  const noLibs = h('div.page', { hidden: true }, h('div.page-inner', h('div.card-box.empty-state', icon('library'), h('h3', t('library.firstLibraryTitle')),
+    h('p', t('library.firstLibraryText')),
     h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', marginTop: '8px' } },
-      h('button.btn.primary', { type: 'button', onclick: () => addLibrary() }, icon('plus', 'sm'), 'Add a library')))));
+      h('button.btn.primary', { type: 'button', onclick: () => addLibrary() }, icon('plus', 'sm'), t('library.addLibrary'))))));
   root.append(noLibs);
 
   // ---------------------------------------------------------------- actions
   async function play(ids) {
     if (!ids.length) return;
-    if (ids.length > 500) toast('Playing the first 500 items');
+    if (ids.length > 500) toast(t('library.playingFirst', { count: 500 }));
     try {
       const j = await post('/api/play', { lib: S.lib, ids: ids.slice(0, 500), player: S.player });
-      toast(j.count > 1 ? `Opening ${j.count} items in ${j.player}` : `Opening in ${j.player}`, { kind: 'ok' });
+      toast(j.count > 1 ? t('library.openingItemsIn', { count: j.count, player: j.player }) : t('library.openingIn', { player: j.player }), { kind: 'ok' });
     } catch (e) {
       if (e.status === 403) { // a browser on another computer or a phone: the server cannot open a player on that screen
         const it = ids.length === 1 ? S.items.find(x => x.id === ids[0]) : null;
-        if (it) { playHere(S.lib, it).catch(x => toastError('Could not play', x)); return; }
+        if (it) { playHere(S.lib, it).catch(x => toastError(t('library.couldNotPlay'), x)); return; }
         window.open(`/api/playlist.m3u8?lib=${encodeURIComponent(S.lib)}&ids=${ids.slice(0, 500).map(encodeURIComponent).join(',')}`, '_blank');
-        toast('Downloading a playlist for your player', { kind: 'ok' });
+        toast(t('library.downloadingPlaylist'), { kind: 'ok' });
         return;
       }
-      toastError('Could not start the player', e);
+      toastError(t('library.couldNotStartPlayer'), e);
     }
   }
-  async function copy(text, what, note = '') {
-    try { await navigator.clipboard.writeText(text); toast(what + ' copied' + note, { kind: 'ok' }); } catch { toast('Copy failed: ' + text, { kind: 'error' }); }
+  async function copy(text, done) {
+    try { await navigator.clipboard.writeText(text); toast(done, { kind: 'ok' }); } catch { toast(t('library.copyFailed', { text }), { kind: 'error' }); }
   }
   // Where a file really is, for any player or person: its path on this computer, a link into the bucket that works
   // anywhere (for a week), or, for a browser on another computer, its address on this server (the only way it has).
-  const linkLabel = () => S.info.type === 'local' ? (onThisComputer() ? 'Copy file path' : 'Copy link') : 'Copy link';
+  const linkLabel = () => S.info.type === 'local' ? (onThisComputer() ? t('library.copyFilePath') : t('library.copyLink')) : t('library.copyLink');
+  const linkLabelOf = name => S.info.type === 'local' && onThisComputer() ? t('library.copyFilePathOf', { name }) : t('library.copyLinkOf', { name });
   async function copyLink(it) {
-    if (S.info.type === 'local') return onThisComputer() ? copy(localPath(S.info.location, it.key), 'File path') : copy(mediaUrl(it), 'Link');
+    if (S.info.type === 'local') return onThisComputer() ? copy(localPath(S.info.location, it.key), t('library.filePathCopied')) : copy(mediaUrl(it), t('library.linkCopied'));
     try {
       const j = await get(`/api/link?lib=${encodeURIComponent(S.lib)}&id=${encodeURIComponent(it.id)}`);
-      copy(j.url, 'Link', ' · it works for 7 days');
-    } catch (e) { toastError('Could not make a link', e); }
+      copy(j.url, t('library.linkCopiedWeek'));
+    } catch (e) { toastError(t('library.couldNotMakeLink'), e); }
   }
   async function savePlaylist() {
     try {
       const j = await post(`/api/playlist/save?${plQuery()}`, {});
-      if (j.path) toast(`Saved ${j.count} ${j.count === 1 ? 'item' : 'items'} to ${j.path}` + (j.expires ? ' · its links work for 7 days' : ''), { kind: 'ok', ms: 6000 });
-    } catch (e) { toastError('Could not save the playlist', e); }
+      if (j.path) toast(j.expires ? t('library.savedPlaylistLinks', { count: j.count, path: j.path }) : t('library.savedPlaylist', { count: j.count, path: j.path }), { kind: 'ok', ms: 6000 });
+    } catch (e) { toastError(t('library.couldNotSavePlaylist'), e); }
   }
   const filePath = it => S.info.type === 'local' ? localPath(S.info.location, it.key) : S.info.type === 's3' ? `s3://${S.info.bucket}/${it.key}` : it.key;
   const canReveal = () => S.info.type === 'local' && onThisComputer();
   async function showInFolder(it) {
-    try { await post('/api/reveal', { lib: S.lib, id: it.id }); } catch (e) { toastError('Could not open the folder', e); }
+    try { await post('/api/reveal', { lib: S.lib, id: it.id }); } catch (e) { toastError(t('library.couldNotOpenFolder'), e); }
   }
 
   // Everything known about one file: all its keyframes (arrow keys step through them), what the index says, where it is.
@@ -182,9 +184,9 @@ export async function mount(root, parts) {
     const frames = it.frames || 0;
     let cur = Math.min(it.cover ?? 0, Math.max(0, frames - 1));
     const big = frames ? h('img', { alt: '', src: thumb(it, cur) })
-      : h('div.det-ph', icon(it.kind === 'audio' ? 'music' : 'film', 'lg'), h('span', it.indexed === false && !it.error ? 'No cover yet' : 'No preview'));
+      : h('div.det-ph', icon(it.kind === 'audio' ? 'music' : 'film', 'lg'), h('span', it.indexed === false && !it.error ? t('library.noCoverYet') : t('library.noPreview')));
     const strip = frames > 1 ? h('div.det-strip', Array.from({ length: frames }, (_, i) =>
-      h('button', { type: 'button', 'aria-label': `Keyframe ${i + 1} of ${frames}`, 'aria-pressed': String(i === cur), onclick: () => pick(i) },
+      h('button', { type: 'button', 'aria-label': t('library.keyframeOf', { n: i + 1, total: frames }), 'aria-pressed': String(i === cur), onclick: () => pick(i) },
         h('img', { alt: '', loading: 'lazy', src: thumb(it, i) })))) : null;
     const pick = i => {
       cur = (i + frames) % frames;
@@ -193,26 +195,26 @@ export async function mount(root, parts) {
     };
     const row = (k, v) => (v == null || v === '' ? null : [h('dt', k), h('dd', v)]);
     const res = resLabel(it.width, it.height);
-    const status = it.error ? h('span', { title: it.error }, 'Could not be scanned: ' + failReason(it.error)) : it.indexed === false ? 'No cover yet'
-      : plural(frames, 'keyframe') + (it.note ? ' (read with ffmpeg)' : '');
+    const status = it.error ? h('span', { title: it.error }, t('library.couldNotBeScanned', { reason: failReason(it.error) })) : it.indexed === false ? t('library.noCoverYet')
+      : it.note ? t('library.keyframesFfmpeg', { count: frames }) : t('library.keyframes', { count: frames });
     const meta = h('dl.det-meta',
-      row('Folder', h('button.linkish', { type: 'button', title: 'Show this folder', onclick: () => { m.close(); go(it.dir); } }, it.dir || 'Top level')),
-      row('Size', h('span', { title: num(it.size) + ' bytes' }, bytes(it.size))),
-      row('Length', it.duration ? clock(it.duration) : null),
-      row('Picture', it.width ? `${it.width} × ${it.height}` + (res ? ' · ' + res : '') + (it.fps ? ` · ${it.fps} fps` : '') : null),
-      row('Subtitles', it.subs?.length ? h('span', it.subs.map((n, i) => [i ? ', ' : '', h('a', { href: subUrl(it, n), target: '_blank', rel: 'noopener' }, subLabel(it, n))])) : null),
-      row('Codec', it.codec ? it.codec + (it.kind === 'video' ? (it.audio ? ' · with sound' : ' · no sound') : '') : null),
-      row(S.info.type === 'local' ? 'Modified' : 'Uploaded', h('span', { title: it.mtime }, when(it.mtime))),
-      row('Added', it.added && it.added !== it.mtime ? h('span', { title: it.added }, when(it.added)) : null),
-      row(S.info.type === 'local' ? 'File' : 'Object', h('code.det-path', filePath(it))),
-      row('Index', status));
+      row(t('library.folder'), h('button.linkish', { type: 'button', title: t('library.showThisFolder'), onclick: () => { m.close(); go(it.dir); } }, it.dir || t('library.topLevel'))),
+      row(t('library.size'), h('span', { title: t('library.bytesExact', { count: it.size }) }, bytes(it.size))),
+      row(t('library.length'), it.duration ? clock(it.duration) : null),
+      row(t('library.picture'), it.width ? `${it.width} × ${it.height}` + (res ? ' · ' + res : '') + (it.fps ? ` · ${it.fps} fps` : '') : null),
+      row(t('library.subtitles'), it.subs?.length ? h('span', it.subs.map((n, i) => [i ? ', ' : '', h('a', { href: subUrl(it, n), target: '_blank', rel: 'noopener' }, subLabel(it, n))])) : null),
+      row(t('library.codec'), it.codec ? it.codec + (it.kind === 'video' ? ' · ' + (it.audio ? t('library.withSound') : t('library.noSound')) : '') : null),
+      row(S.info.type === 'local' ? t('library.modified') : t('library.uploaded'), h('span', { title: it.mtime }, when(it.mtime))),
+      row(t('library.added'), it.added && it.added !== it.mtime ? h('span', { title: it.added }, when(it.added)) : null),
+      row(S.info.type === 'local' ? t('library.file') : t('library.object'), h('code.det-path', filePath(it))),
+      row(t('library.index'), status));
     const m = modal({
       title: it.name, size: 'wide', body: h('div.details', h('div.det-view', big, strip), meta),
       actions: [
         canReveal() ? { label: revealLabel(), left: true, keepOpen: true, onClick: () => showInFolder(it) } : null,
-        S.info.type === 'local' ? null : { label: 'Copy key', keepOpen: true, onClick: () => copy(it.key, 'Key') },
+        S.info.type === 'local' ? null : { label: t('library.copyKey'), keepOpen: true, onClick: () => copy(it.key, t('library.keyCopied')) },
         { label: linkLabel(), keepOpen: true, onClick: () => copyLink(it) },
-        { label: 'Play', primary: true, onClick: () => play([it.id]) },
+        { label: t('common.play'), primary: true, onClick: () => play([it.id]) },
       ].filter(Boolean),
     });
     m.el.addEventListener('keydown', e => {
@@ -223,7 +225,7 @@ export async function mount(root, parts) {
 
   // ---------------------------------------------------------------- folder tree
   function buildTree(items) {
-    const rootNode = { name: 'All media', path: '', kids: new Map(), count: 0, depth: -1 };
+    const rootNode = { name: t('library.allMedia'), path: '', kids: new Map(), count: 0, depth: -1 };
     const nodes = new Map([['', rootNode]]);
     for (const it of items) {
       rootNode.count++;
@@ -249,11 +251,11 @@ export async function mount(root, parts) {
     const row = h('div.nrow', { style: { '--d': Math.max(0, node.depth) } });
     let tw;
     if (node.kids.size && node.depth >= 0) {
-      tw = h('button.twist', { type: 'button', 'aria-expanded': 'false', 'aria-label': 'Expand ' + node.name, onclick: () => (node.open ? collapse(node) : expand(node)) }, icon('chevron-right'));
+      tw = h('button.twist', { type: 'button', 'aria-expanded': 'false', 'aria-label': t('library.expand', { name: node.name }), onclick: () => (node.open ? collapse(node) : expand(node)) }, icon('chevron-right'));
     } else {
       tw = h('button.twist.leaf', { type: 'button', tabindex: -1, 'aria-hidden': 'true' });
     }
-    const b = h('button.node', { type: 'button', class: node.depth < 0 ? 'all' : '', title: node.path || 'All media', onclick: () => { go(node.path); navOpen(false); } },
+    const b = h('button.node', { type: 'button', class: node.depth < 0 ? 'all' : '', title: node.path || t('library.allMedia'), onclick: () => { go(node.path); navOpen(false); } },
       h('span.nname', node.name), h('span.count', String(node.count)));
     row.append(tw, b);
     li.append(row);
@@ -299,25 +301,25 @@ export async function mount(root, parts) {
   function card(entry) {
     const it = entry.it;
     const art = h('article.card', { dataset: { id: it.id }, class: S.sel.has(it.id) ? 'selected' : '' });
-    const cover = h('button.cover', { type: 'button', 'aria-label': 'Play ' + it.name });
-    const dated = (S.info.type === 'local' ? 'modified ' : 'uploaded ') + it.mtime.slice(0, 10);
+    const cover = h('button.cover', { type: 'button', 'aria-label': t('library.playName', { name: it.name }) });
+    const dated = S.info.type === 'local' ? t('library.modifiedOn', { date: it.mtime.slice(0, 10) }) : t('library.uploadedOn', { date: it.mtime.slice(0, 10) });
     cover.title = [it.name, it.dir, [resLabel(it.width, it.height), it.codec, it.fps && it.fps + ' fps'].filter(Boolean).join(' · '), bytes(it.size) + ' · ' + dated].filter(Boolean).join('\n');
     if (it.frames) {
       cover.append(h('img', { alt: '', loading: 'lazy', decoding: 'async', src: thumb(it, it.cover ?? 0) }));
     } else {
       cover.append(h('div.ph', icon(it.kind === 'audio' ? 'music' : 'film', 'lg'),
-        h('span', it.kind === 'audio' ? (it.codec || 'audio').toUpperCase() : it.indexed === false && !it.error ? 'No cover yet' : 'No preview')));
+        h('span', it.kind === 'audio' ? (it.codec || t('library.audio')).toUpperCase() : it.indexed === false && !it.error ? t('library.noCoverYet') : t('library.noPreview'))));
     }
     const res = resLabel(it.width, it.height);
     if (res) cover.append(h('span.badge.tl', res));
     if (it.duration) cover.append(h('span.badge.br', clock(it.duration)));
-    if (it.subs?.length) cover.append(h('span.badge.tr', { title: 'Subtitles: ' + it.subs.join(', ') }, 'CC'));
+    if (it.subs?.length) cover.append(h('span.badge.tr', { title: t('library.subtitlesList', { list: it.subs.join(', ') }) }, 'CC'));
     if (it.frames > 1) cover.append(h('span.ticks', Array.from({ length: it.frames }, () => h('i'))));
     const hint = h('span.playhint'); hint.innerHTML = PLAY_HINT; cover.append(hint);
-    const title = h('div.title', { title: it.name + '\nClick for details' }, stem(it.name));
-    const sub = h('div.sub', { title: `${bytes(it.size)} · ${when(it.mtime)}` }, entry.sub || `Added ${ago(addedAt(it))}`);
-    const cp = h('button.copy', { type: 'button', title: linkLabel(), 'aria-label': `${linkLabel()} of ${it.name}` }, icon('copy', 'sm'));
-    const pick = h('button.pick', { type: 'button', 'aria-label': 'Select ' + it.name, 'aria-pressed': String(S.sel.has(it.id)), title: 'Select (Ctrl-click; Shift-click picks a run)' }, icon('check', 'sm'));
+    const title = h('div.title', { title: t('library.clickForDetails', { name: it.name }) }, stem(it.name));
+    const sub = h('div.sub', { title: `${bytes(it.size)} · ${when(it.mtime)}` }, entry.sub || t('library.addedAgo', { ago: ago(addedAt(it)) }));
+    const cp = h('button.copy', { type: 'button', title: linkLabel(), 'aria-label': linkLabelOf(it.name) }, icon('copy', 'sm'));
+    const pick = h('button.pick', { type: 'button', 'aria-label': t('library.selectName', { name: it.name }), 'aria-pressed': String(S.sel.has(it.id)), title: t('library.selectTitle') }, icon('check', 'sm'));
     art.append(cover, pick, h('div.meta', title, cp, sub));
     return art;
   }
@@ -394,7 +396,7 @@ export async function mount(root, parts) {
       if (reveal(id)) return;
       if (++tries < 40) { setTimeout(attempt, 60); return; }
       const it = S.byId.get(id);
-      toast(it && S.hidden.has(it.ext) ? 'That file is hidden by the type filter (Types menu)' : 'Could not find that file in this view');
+      toast(it && S.hidden.has(it.ext) ? t('library.hiddenByTypeFilter') : t('library.notInView'));
     };
     setTimeout(attempt, 0);
   }
@@ -474,17 +476,17 @@ export async function mount(root, parts) {
       if (here) {
         here.entries.sort(itemSort[how]);
         S.visibleIds.push(...here.entries.map(e => e.it.id));
-        frag.append(h('section.group', folders.length ? h('header.ghead', h('div.gpath', h('span.gtitle', 'Files in this folder')),
+        frag.append(h('section.group', folders.length ? h('header.ghead', h('div.gpath', h('span.gtitle', t('library.filesInThisFolder'))),
           h('span.gstats', `${here.entries.length} · ${span(here.dur)}`)) : null, makeGrid(here.entries)));
       }
     } else for (const g of [...grp.values()].sort(groupSort[how])) {
       g.entries.sort(itemSort[how]);
       const ids = g.entries.map(e => e.it.id);
       S.visibleIds.push(...ids);
-      const t = groupPath(s, g.key);
-      const pb = h('button.btn.small', { type: 'button', 'aria-label': 'Play all in ' + t.title, onclick: () => play(ids) }, icon('play', 'sm'), 'Play');
+      const gp = groupPath(s, g.key);
+      const pb = h('button.btn.small', { type: 'button', 'aria-label': t('library.playAllIn', { name: gp.title }), onclick: () => play(ids) }, icon('play', 'sm'), t('common.play'));
       // A group without a key holds the files that sit directly in the folder being viewed.
-      frag.append(h('section.group', h('header.ghead', t, h('span.gstats', `${g.key ? '' : 'files directly here · '}${g.entries.length} · ${span(g.dur)} · ${bytes(g.size)}`), pb),
+      frag.append(h('section.group', h('header.ghead', gp, h('span.gstats', `${g.key ? '' : t('library.filesDirectlyHere') + ' · '}${g.entries.length} · ${span(g.dur)} · ${bytes(g.size)}`), pb),
         makeGrid(g.entries)));
     }
     pathIO.disconnect();
@@ -494,14 +496,14 @@ export async function mount(root, parts) {
     empty.hidden = list.length > 0 || !S.items.length;
 
     const ps = s ? s.split('/') : [];
-    fill(crumbs, [[S.info?.name || 'All media', ''], ...ps.map((p, i) => [p, ps.slice(0, i + 1).join('/')])].map(([name, path], i, arr) => {
+    fill(crumbs, [[S.info?.name || t('library.allMedia'), ''], ...ps.map((p, i) => [p, ps.slice(0, i + 1).join('/')])].map(([name, path], i, arr) => {
       const b = h('button', { type: 'button' }, name);
       if (i < arr.length - 1) b.addEventListener('click', () => go(path)); else b.setAttribute('aria-current', 'page');
       return h('li', b);
     }));
     const total = list.reduce((a, it) => a + (it.duration || 0), 0), size = list.reduce((a, it) => a + it.size, 0);
     const filtered = S.hidden.size ? S.items.filter(it => inScope(it, s) && S.hidden.has(it.ext)).length : 0;
-    stats.textContent = `${plural(list.length, 'video')} · ${span(total)} · ${bytes(size)}` + (S.q.trim() ? ` · matching “${S.q.trim()}”` : '') + (filtered ? ` · ${num(filtered)} hidden by type` : '');
+    stats.textContent = `${t('library.videos', { count: list.length })} · ${span(total)} · ${bytes(size)}` + (S.q.trim() ? ' · ' + t('library.matching', { q: S.q.trim() }) : '') + (filtered ? ' · ' + t('library.hiddenByType', { count: filtered }) : '');
     document.title = (s ? leaf(s) + ' · ' : '') + (S.info ? S.info.name + ' · ' : '') + 'Media Library';
   }
 
@@ -523,22 +525,22 @@ export async function mount(root, parts) {
     const tile = own ? h('div.tile-mosaic.art', h('img', { src: own, alt: '', loading: 'lazy', decoding: 'async', onerror: () => tile.replaceWith(mosaic()) })) : mosaic();
     return h('button.fcard', { type: 'button', title: path, onclick: () => go(path),
       oncontextmenu: e => contextMenu(e, [
-        { label: 'Open', icon: 'folder', onClick: () => go(path) },
-        { label: 'Play all', icon: 'play', onClick: () => play(ids()) },
-        { label: 'Shuffle', icon: 'shuffle', onClick: () => play(shuffled(ids())) },
+        { label: t('common.open'), icon: 'folder', onClick: () => go(path) },
+        { label: t('library.playAll'), icon: 'play', onClick: () => play(ids()) },
+        { label: t('library.shuffle'), icon: 'shuffle', onClick: () => play(shuffled(ids())) },
       ]) },
     tile,
-    h('div.tile-meta', h('span.tile-name', icon('folder', 'sm'), g.key), h('span.tile-status', `${plural(g.entries.length, 'video')}${g.dur ? ' · ' + span(g.dur) : ''}`)));
+    h('div.tile-meta', h('span.tile-name', icon('folder', 'sm'), g.key), h('span.tile-status', `${t('library.videos', { count: g.entries.length })}${g.dur ? ' · ' + span(g.dur) : ''}`)));
   }
   function openMore(anchor) {
     showMenu({ anchor, align: 'right', items: [
       onThisComputer()
-        ? { label: 'Save as playlist…', icon: 'download', onClick: () => savePlaylist() }
-        : { label: 'Copy playlist link', icon: 'link', onClick: () => copy(`${location.origin}/api/playlist.m3u8?${plQuery()}`, 'Playlist link') },
-      { label: 'Find duplicates…', icon: 'layers', onClick: () => showDuplicates() },
+        ? { label: t('library.saveAsPlaylist'), icon: 'download', onClick: () => savePlaylist() }
+        : { label: t('library.copyPlaylistLink'), icon: 'link', onClick: () => copy(`${location.origin}/api/playlist.m3u8?${plQuery()}`, t('library.playlistLinkCopied')) },
+      { label: t('library.findDuplicates'), icon: 'layers', onClick: () => showDuplicates() },
       { sep: true },
-      { label: 'Scan for new videos', icon: 'refresh', onClick: () => startIndex(S.lib) },
-      { label: 'Library settings…', icon: 'sliders', onClick: () => manageLibraries() },
+      { label: t('library.scanForNewVideos'), icon: 'refresh', onClick: () => startIndex(S.lib) },
+      { label: t('library.librarySettings'), icon: 'sliders', onClick: () => manageLibraries() },
     ] });
   }
 
@@ -548,7 +550,7 @@ export async function mount(root, parts) {
   function groupPath(sc, key) {
     const segs = [...(sc ? sc.split('/') : []), ...(key ? [key] : [])];
     const box = h('div.gpath');
-    box._parts = segs.length ? segs.map((name, i) => ({ name, path: segs.slice(0, i + 1).join('/') })) : [{ name: 'Top-level files', path: '' }];
+    box._parts = segs.length ? segs.map((name, i) => ({ name, path: segs.slice(0, i + 1).join('/') })) : [{ name: t('library.topLevelFiles'), path: '' }];
     box.title = box._parts.map(p => p.name).join(' › ');
     drawPath(box, 0);
     return box;
@@ -664,7 +666,7 @@ export async function mount(root, parts) {
 
   const paintSwitch = () => {
     const lib = state.libs.find(l => l.id === S.lib);
-    fill(libBtn, icon(lib && lib.type === 'local' ? 'folder' : 'cloud', 'sm'), h('span.lib-switch-name', lib ? lib.name : 'Library'), icon('chevron-down', 'sm'));
+    fill(libBtn, icon(lib && lib.type === 'local' ? 'folder' : 'cloud', 'sm'), h('span.lib-switch-name', lib ? lib.name : t('library.library')), icon('chevron-down', 'sm'));
   };
 
   async function switchLibrary(id, path = '') {
@@ -686,41 +688,41 @@ export async function mount(root, parts) {
   function openSwitcher(anchor) {
     showMenu({
       anchor, items: [
-        { head: 'Libraries' },
+        { head: t('library.libraries') },
         ...state.libs.map(l => ({ label: l.name, icon: l.type === 'local' ? 'folder' : 'cloud', check: l.id === S.lib, onClick: () => navigate('library', l.id) })),
         { sep: true },
-        { label: 'Add a library…', icon: 'plus', onClick: () => addLibrary() },
-        { label: 'Manage libraries…', icon: 'settings', onClick: () => manageLibraries() },
+        { label: t('library.addLibraryDots'), icon: 'plus', onClick: () => addLibrary() },
+        { label: t('library.manageLibraries'), icon: 'settings', onClick: () => manageLibraries() },
       ],
     });
   }
 
   function manageLibraries() {
     const list = h('ul.lib-list');
-    const m = modal({ title: 'Libraries', size: 'wide', body: list, actions: [{ label: 'Add a library…', left: true, keepOpen: true, onClick: () => { m.close(); addLibrary(); return false; } }, { label: 'Done', primary: true, value: true }] });
+    const m = modal({ title: t('library.libraries'), size: 'wide', body: list, actions: [{ label: t('library.addLibraryDots'), left: true, keepOpen: true, onClick: () => { m.close(); addLibrary(); return false; } }, { label: t('common.done'), primary: true, value: true }] });
     const paint = () => fill(list, state.libs.map(l => {
       const job = state.jobs[l.id];
       const meta = h('div.lib-meta');
       if (running(job)) {
-        meta.append(job.state === 'waiting' ? 'Waiting for another scan to finish…' : job.state === 'listing' ? 'Looking for videos…' : `Making covers: ${num(job.done)} of ${num(job.total)}`,
+        meta.append(job.state === 'waiting' ? t('library.waitingForScan') : job.state === 'listing' ? t('library.lookingForVideos') : t('library.makingCovers', { done: job.done, total: job.total }),
           h('div.meter', h('i', { style: { width: (job.state === 'indexing' && job.total ? job.done / job.total * 100 : 0) + '%' } })));
       } else {
-        meta.textContent = job && job.state === 'error' ? 'Scan failed: ' + job.line : l.type === 'local' && !l.reachable ? 'Folder not found'
-          : l.type === 's3' && !l.reachable ? 'Its connection was removed' : l.updated ? `${plural(l.items, 'video')} · scanned ${ago(l.updated)}` : 'Not scanned yet';
+        meta.textContent = job && job.state === 'error' ? t('library.scanFailed', { error: job.line }) : l.type === 'local' && !l.reachable ? t('library.folderNotFound')
+          : l.type === 's3' && !l.reachable ? t('library.connectionRemoved') : l.updated ? t('library.videosScanned', { count: l.items, ago: ago(l.updated) }) : t('library.notScannedYet');
       }
       const busy = running(job);
       return h('li.lib', h('div.lib-main',
-        h('div.lib-name', l.name, h('span.tag', TYPE_LABEL[l.type] || l.type), l.type === 's3' && l.connection_name ? h('span.tag', l.connection_name) : null, l.id === S.lib ? h('span.tag.accent', 'Open') : null),
+        h('div.lib-name', l.name, h('span.tag', TYPE_LABEL[l.type] || l.type), l.type === 's3' && l.connection_name ? h('span.tag', l.connection_name) : null, l.id === S.lib ? h('span.tag.accent', t('library.current')) : null),
         h('div.lib-loc.mono', l.location), meta),
         h('div.lib-actions',
-          h('button.btn.small', { type: 'button', disabled: l.id === S.lib, onclick: () => { m.close(); navigate('library', l.id); } }, 'Open'),
-          h('button.btn.small', { type: 'button', disabled: busy, onclick: () => startIndex(l.id) }, l.updated ? 'Update index' : 'Index'),
-          h('button.icon-btn.small', { type: 'button', 'aria-label': 'More', onclick: e => showMenu({ anchor: e.currentTarget, align: 'right', items: [
-            { label: 'Edit…', icon: 'edit', disabled: busy, onClick: () => editLibrary(l) },
-            { label: 'Remake every cover', icon: 'refresh', disabled: busy, onClick: () => startIndex(l.id, true) },
-            l.convertible ? { label: 'Read directly over S3 (no rclone)', icon: 'cloud', disabled: busy, onClick: () => convert(l) } : null,
+          h('button.btn.small', { type: 'button', disabled: l.id === S.lib, onclick: () => { m.close(); navigate('library', l.id); } }, t('common.open')),
+          h('button.btn.small', { type: 'button', disabled: busy, onclick: () => startIndex(l.id) }, l.updated ? t('library.updateIndex') : t('library.indexNow')),
+          h('button.icon-btn.small', { type: 'button', 'aria-label': t('common.more'), onclick: e => showMenu({ anchor: e.currentTarget, align: 'right', items: [
+            { label: t('library.editDots'), icon: 'edit', disabled: busy, onClick: () => editLibrary(l) },
+            { label: t('library.remakeCovers'), icon: 'refresh', disabled: busy, onClick: () => startIndex(l.id, true) },
+            l.convertible ? { label: t('library.readOverS3'), icon: 'cloud', disabled: busy, onClick: () => convert(l) } : null,
             { sep: true },
-            { label: 'Remove', icon: 'trash', danger: true, disabled: busy || state.libs.length < 2, onClick: () => removeLibrary(l) },
+            { label: t('common.remove'), icon: 'trash', danger: true, disabled: busy || state.libs.length < 2, onClick: () => removeLibrary(l) },
           ].filter(Boolean) }) }, icon('more'))));
     }));
     const off = on('activity', paint), off2 = on('libraries', paint);
@@ -736,32 +738,32 @@ export async function mount(root, parts) {
     if (l.type === 'local') {
       const pathIn = h('input.input', { value: l.location, autocomplete: 'off', spellcheck: 'false' });
       const browse = h('button.btn', { type: 'button', onclick: async e => {
-        const b = e.currentTarget; b.disabled = true; b.textContent = 'Pick in the dialog…';
+        const b = e.currentTarget; b.disabled = true; b.textContent = t('library.pickInDialog');
         try { const j = await post('/api/pick-folder', {}); if (j.path) pathIn.value = j.path; } catch (x) { err.textContent = x.message; err.hidden = false; }
-        b.disabled = false; b.textContent = 'Browse…';
-      } }, 'Browse…');
-      where = h('div.field', h('label', 'Folder'), h('div.input-wrap', pathIn, browse));
+        b.disabled = false; b.textContent = t('library.browse');
+      } }, t('library.browse'));
+      where = h('div.field', h('label', t('library.folder')), h('div.input-wrap', pathIn, browse));
       getBody = () => ({ path: pathIn.value });
     } else if (l.type === 's3') {
       let loc = { conn: l.connection, bucket: l.bucket, prefix: l.prefix };
       const picker = locationPicker({ conn: l.connection, bucket: l.bucket, prefix: l.prefix, onChange: v => { loc = v; } });
-      where = h('div.field', h('div.label', 'Location'), picker.el);
+      where = h('div.field', h('div.label', t('library.location')), picker.el);
       getBody = () => ({ connection: loc.conn, bucket: loc.bucket, prefix: loc.prefix });
     } else {
-      where = h('p.hint', 'This library reads through an rclone remote, so only its name can change. Use “Read directly over S3” to make its location editable.');
+      where = h('p.hint', t('library.rcloneHint'));
     }
     const m = modal({
-      title: 'Edit library', size: l.type === 's3' ? 'wide' : '',
-      body: h('div', err, h('div.field', h('label', 'Name'), nameIn), where,
-        l.type === 'rclone' ? null : h('p.hint', 'Changing the location re-indexes the library. Covers of files that are still there are reused only if the file keeps its path.')),
-      actions: [{ label: 'Cancel', value: false }, { label: 'Save', primary: true, keepOpen: true, onClick: async api => {
+      title: t('library.editLibrary'), size: l.type === 's3' ? 'wide' : '',
+      body: h('div', err, h('div.field', h('label', t('library.name')), nameIn), where,
+        l.type === 'rclone' ? null : h('p.hint', t('library.locationChangeHint'))),
+      actions: [{ label: t('common.cancel'), value: false }, { label: t('common.save'), primary: true, keepOpen: true, onClick: async api => {
         err.hidden = true;
         try {
           const j = await post('/api/libraries/update', { id: l.id, name: nameIn.value, ...getBody() });
           await loadLibraries();
           api.close(true);
           if (l.id === S.lib) { paintSwitch(); loadLibrary(); }
-          if (j.moved) { toast('Location changed. Scanning…', { kind: 'ok' }); pokeWatcher(); }
+          if (j.moved) { toast(t('library.locationChanged'), { kind: 'ok' }); pokeWatcher(); }
         } catch (e) { err.textContent = e.message; err.hidden = false; }
         return false;
       } }],
@@ -769,19 +771,19 @@ export async function mount(root, parts) {
     nameIn.select();
   }
   async function convert(l) {
-    if (!await confirmDialog({ title: 'Read this library over S3 directly?', message: `“${l.name}” will use the stored S3 credentials instead of starting an rclone process for each request.`, detail: 'Its index and covers stay as they are.', confirm: 'Switch' })) return;
-    try { await post('/api/libraries/convert', { id: l.id }); await Promise.all([loadLibraries(), loadConnections()]); toast('Now reading over S3', { kind: 'ok' }); if (l.id === S.lib) loadLibrary(true); } catch (e) { toastError('Could not switch', e); }
+    if (!await confirmDialog({ title: t('library.convertTitle'), message: t('library.convertMessage', { name: l.name }), detail: t('library.convertDetail'), confirm: t('library.switch') })) return;
+    try { await post('/api/libraries/convert', { id: l.id }); await Promise.all([loadLibraries(), loadConnections()]); toast(t('library.nowReadingOverS3'), { kind: 'ok' }); if (l.id === S.lib) loadLibrary(true); } catch (e) { toastError(t('library.couldNotSwitch'), e); }
   }
   async function removeLibrary(l) {
-    if (!await confirmDialog({ title: 'Remove library?', message: `“${l.name}” will be removed from the list.`, detail: 'Its index and thumbnails are deleted. Your media files are not touched.', confirm: 'Remove', danger: true })) return;
+    if (!await confirmDialog({ title: t('library.removeTitle'), message: t('library.removeMessage', { name: l.name }), detail: t('library.removeDetail'), confirm: t('common.remove'), danger: true })) return;
     try {
       const j = await post('/api/libraries/remove', { id: l.id });
       await loadLibraries();
       if (l.id === S.lib) navigate('library', j.active);
-    } catch (e) { toastError('Could not remove', e); }
+    } catch (e) { toastError(t('library.couldNotRemove'), e); }
   }
   async function startIndex(id, force = false, retry = false) {
-    try { state.jobs[id] = await post('/api/index', { id, force, retry }); paintBanner(); pokeWatcher(); } catch (e) { toastError('Could not start indexing', e); }
+    try { state.jobs[id] = await post('/api/index', { id, force, retry }); paintBanner(); pokeWatcher(); } catch (e) { toastError(t('library.couldNotStartIndexing'), e); }
   }
 
   // ---------------------------------------------------------------- files that could not be scanned
@@ -789,20 +791,20 @@ export async function mount(root, parts) {
   function showFailed() {
     const list = h('ul.fail-list');
     const m = modal({
-      title: 'Files that could not be scanned', size: 'wide', body: h('div', h('p.hint',
-        'These files have no cover. Scans skip them until the files change; try again after replacing one or updating ffmpeg.'), list),
-      actions: [{ label: 'Close', left: true, value: false },
-        { label: 'Try again', primary: true, onClick: () => startIndex(S.lib, false, true) }],
+      title: t('library.failedTitle'), size: 'wide', body: h('div', h('p.hint',
+        t('library.failedHint')), list),
+      actions: [{ label: t('common.close'), left: true, value: false },
+        { label: t('common.retry'), primary: true, onClick: () => startIndex(S.lib, false, true) }],
     });
     const paint = () => {
       const items = failedItems().sort((a, b) => collator.compare(a.key, b.key));
-      if (!items.length) { fill(list, h('li.fail-row.muted', 'Every file has been scanned.')); return; }
+      if (!items.length) { fill(list, h('li.fail-row.muted', t('library.everyFileScanned'))); return; }
       fill(list, items.map(it => h('li.fail-row',
-        h('div.grow', h('div.fail-name', it.name), h('div.fail-dir.muted', it.dir || 'Top level'),
+        h('div.grow', h('div.fail-name', it.name), h('div.fail-dir.muted', it.dir || t('library.topLevel')),
           h('div.fail-why', failReason(it.error)), h('div.fail-raw.mono', it.error)),
         h('div.fail-actions',
           canReveal() ? h('button.btn.small', { type: 'button', onclick: () => showInFolder(it) }, revealLabel()) : null,
-          h('button.btn.small', { type: 'button', onclick: () => { m.close(); openLibraryAction('reveal', { lib: S.lib, dir: it.dir, id: it.id }); } }, 'Show in library')))));
+          h('button.btn.small', { type: 'button', onclick: () => { m.close(); openLibraryAction('reveal', { lib: S.lib, dir: it.dir, id: it.id }); } }, t('library.showInLibrary'))))));
     };
     paint();
   }
@@ -810,25 +812,25 @@ export async function mount(root, parts) {
   // ---------------------------------------------------------------- add a library
   function addLibrary() {
     let mode = state.connections.length ? store.get('addMode', 'local') : 'local';
-    const pathIn = h('input.input', { placeholder: 'D:\\Videos   or   \\\\nas\\media\\videos', autocomplete: 'off', spellcheck: 'false' });
-    const nameIn = h('input.input', { placeholder: 'Name (optional)', autocomplete: 'off' });
+    const pathIn = h('input.input', { placeholder: t('library.pathPlaceholder'), autocomplete: 'off', spellcheck: 'false' });
+    const nameIn = h('input.input', { placeholder: t('library.nameOptional'), autocomplete: 'off' });
     const err = h('p.form-error', { hidden: true });
     const browse = h('button.btn', { type: 'button', onclick: async e => {
-      const b = e.currentTarget; b.disabled = true; b.textContent = 'Pick in the dialog…';
+      const b = e.currentTarget; b.disabled = true; b.textContent = t('library.pickInDialog');
       try { const j = await post('/api/pick-folder', {}); if (j.path) { pathIn.value = j.path; err.hidden = true; } } catch (x) { showErr(x.message); }
-      b.disabled = false; b.textContent = 'Browse…';
-    } }, 'Browse…');
-    const localPane = h('div', h('p.hint', 'A folder on a disk or a NAS share. Subfolders are included.'),
-      h('div.field', h('label', 'Folder'), h('div.input-wrap', pathIn, browse)), h('div.field', h('label', 'Name'), nameIn));
+      b.disabled = false; b.textContent = t('library.browse');
+    } }, t('library.browse'));
+    const localPane = h('div', h('p.hint', t('library.localHint')),
+      h('div.field', h('label', t('library.folder')), h('div.input-wrap', pathIn, browse)), h('div.field', h('label', t('library.name')), nameIn));
     let loc = { conn: '', bucket: '', prefix: '' };
-    const s3Name = h('input.input', { placeholder: 'Name (optional)', autocomplete: 'off' });
+    const s3Name = h('input.input', { placeholder: t('library.nameOptional'), autocomplete: 'off' });
     const picker = state.connections.length ? locationPicker({ onChange: v => { loc = v; } }) : null;
-    const s3Pane = h('div', picker ? [h('p.hint', 'Pick a bucket, then the folder that holds your videos. medialib reads it straight through the S3 API.'), picker.el,
-      h('div.field', { style: { marginTop: '14px' } }, h('label', 'Name'), s3Name)]
-      : h('div.empty-state', icon('plug'), h('h3', 'No connection yet'), h('p', 'Connect to RustFS, MinIO, S3 or another store first.'),
-        h('button.btn.primary', { type: 'button', onclick: async () => { const c = await editConnection(); if (c) { m.close(); addLibrary(); } } }, icon('plus', 'sm'), 'Add connection')));
-    const tabs = h('div.seg', { role: 'tablist' }, [['local', 'Local folder'], ['s3', 'Bucket (S3)']].map(([id, t]) =>
-      h('button', { type: 'button', role: 'tab', dataset: { id }, 'aria-selected': String(id === mode), onclick: () => setMode(id) }, t)));
+    const s3Pane = h('div', picker ? [h('p.hint', t('library.s3Hint')), picker.el,
+      h('div.field', { style: { marginTop: '14px' } }, h('label', t('library.name')), s3Name)]
+      : h('div.empty-state', icon('plug'), h('h3', t('library.noConnectionTitle')), h('p', t('library.noConnectionText')),
+        h('button.btn.primary', { type: 'button', onclick: async () => { const c = await editConnection(); if (c) { m.close(); addLibrary(); } } }, icon('plus', 'sm'), t('library.addConnection'))));
+    const tabs = h('div.seg', { role: 'tablist' }, [['local', t('library.typeLocal')], ['s3', t('library.bucketS3')]].map(([id, label]) =>
+      h('button', { type: 'button', role: 'tab', dataset: { id }, 'aria-selected': String(id === mode), onclick: () => setMode(id) }, label)));
     const panes = h('div', localPane, s3Pane);
     const setMode = id => {
       mode = id; store.set('addMode', id);
@@ -838,8 +840,8 @@ export async function mount(root, parts) {
     const showErr = msg => { err.textContent = msg; err.hidden = false; };
     setMode(mode);
     const m = modal({
-      title: 'Add a library', body: h('div', h('div', { style: { marginBottom: '14px' } }, tabs), err, panes),
-      actions: [{ label: 'Cancel', value: false }, { label: 'Add and scan', primary: true, keepOpen: true, onClick: async api => {
+      title: t('library.addLibrary'), body: h('div', h('div', { style: { marginBottom: '14px' } }, tabs), err, panes),
+      actions: [{ label: t('common.cancel'), value: false }, { label: t('library.addAndScan'), primary: true, keepOpen: true, onClick: async api => {
         err.hidden = true;
         try {
           const lib = mode === 'local' ? await post('/api/libraries', { path: pathIn.value, name: nameIn.value })
@@ -864,25 +866,25 @@ export async function mount(root, parts) {
     let detail = '', edit = false;
     if (running(job)) {
       if (job.state === 'waiting') msg = job.line;  // progress itself lives in the ring
-      else if (!S.items.length) { msg = 'Looking for videos…'; detail = 'Covers appear here as they are made.'; }
-    } else if (job && job.state === 'error') { msg = 'The last scan did not finish.'; detail = job.line; act = 'Try again'; kind = 'error'; }
+      else if (!S.items.length) { msg = t('library.lookingForVideos'); detail = t('library.coversAppear'); }
+    } else if (job && job.state === 'error') { msg = t('library.lastScanFailed'); detail = job.line; act = t('common.retry'); kind = 'error'; }
     else if (info.type === 'local' && !info.reachable) {
-      msg = 'Can’t find this folder.'; detail = `It may be on a disk that is not plugged in, or it was moved: ${info.location}`; kind = 'warn'; edit = true;
-    } else if (info.type === 's3' && !info.reachable) { msg = 'The connection this library used was removed.'; detail = 'Covers from the last scan are still shown.'; kind = 'warn'; edit = true; }
+      msg = t('library.cantFindFolder'); detail = t('library.cantFindFolderDetail', { location: info.location }); kind = 'warn'; edit = true;
+    } else if (info.type === 's3' && !info.reachable) { msg = t('library.connectionRemovedBanner'); detail = t('library.coversFromLastScan'); kind = 'warn'; edit = true; }
     else if (!S.items.length) {
-      msg = info.updated ? 'No videos were found here.' : 'This library hasn’t been scanned yet.';
-      detail = info.updated ? 'Add videos to the folder, then scan again.' : 'A scan finds the videos and makes a cover for each.'; act = info.updated ? 'Scan again' : 'Scan for videos';
-    } else if (pending) { msg = `${plural(pending, 'video')} without a cover yet.`; act = 'Make covers'; }
+      msg = info.updated ? t('library.noVideosFound') : t('library.notScannedYetBanner');
+      detail = info.updated ? t('library.addVideosThenScan') : t('library.scanFindsVideos'); act = info.updated ? t('library.scanAgain') : t('library.scanForVideos');
+    } else if (pending) { msg = t('library.withoutCover', { count: pending }); act = t('library.makeCovers'); }
     let failed = 0;
     if (!msg && !running(job) && (failed = failedItems().length)) {
-      msg = `${plural(failed, 'file')} could not be scanned.`; detail = 'They have no cover. See why, then try again once they are fixed.'; kind = 'warn';
+      msg = t('library.filesCouldNotBeScanned', { count: failed }); detail = t('library.failedDetail'); kind = 'warn';
     }
     banner.hidden = !msg;
     banner.className = 'banner lib-banner ' + kind;
     fill(banner, h('div.grow', h('strong', msg), detail ? h('div.banner-detail', detail) : null),
-      edit ? h('button.btn', { type: 'button', onclick: () => manageLibraries() }, 'Edit library…') : null,
+      edit ? h('button.btn', { type: 'button', onclick: () => manageLibraries() }, t('library.editLibraryDots')) : null,
       act ? h('button.btn', { type: 'button', class: kind ? '' : 'primary', onclick: () => startIndex(S.lib) }, act) : null,
-      failed ? h('button.btn', { type: 'button', onclick: () => showFailed() }, 'See which') : null);
+      failed ? h('button.btn', { type: 'button', onclick: () => showFailed() }, t('library.seeWhich')) : null);
     fill(warnings, (info.warnings || []).map(w => h('li', w)));
     warnings.hidden = !warnings.children.length;
   }
@@ -897,10 +899,10 @@ export async function mount(root, parts) {
     ring.classList.toggle('busy', busy);
     $('.ring-bar', ring).setAttribute('stroke-dasharray', `${busy ? 25 : pct} 100`);
     ringText.textContent = busy ? '' : pct + '%';
-    const text = job.state === 'waiting' ? `Waiting to scan ${name}` : job.state === 'listing' ? `Looking for videos in ${name}`
-      : `Making covers for ${name}: ${pct}%, ${num(job.done)} of ${num(job.total)}` + (job.errors ? `, ${num(job.errors)} failed` : '');
+    const text = job.state === 'waiting' ? t('library.ringWaiting', { name }) : job.state === 'listing' ? t('library.ringListing', { name })
+      : job.errors ? t('library.ringMakingFailed', { name, pct, done: job.done, total: job.total, errors: job.errors }) : t('library.ringMaking', { name, pct, done: job.done, total: job.total });
     ring.title = text;
-    ring.setAttribute('aria-label', text + '. Open libraries');
+    ring.setAttribute('aria-label', t('library.ringLabel', { text }));
   }
 
   // Refresh the open library's covers as indexing lands them, and once more when a run finishes.
@@ -934,8 +936,8 @@ export async function mount(root, parts) {
     if (anyFinished) loadLibraries().catch(() => {});  // a finished run changes a library's item count and indexed time
     paintBanner();
     if (finished && now.state === 'done') {
-      if (now.errors) toast(`Scan finished. ${plural(now.errors, 'file')} could not be scanned.`, { kind: 'error', ms: 8000, action: { label: 'See which', run: showFailed } });
-      else toast('Scan finished: every cover is up to date', { kind: 'ok' });
+      if (now.errors) toast(t('library.scanFinishedErrors', { count: now.errors }), { kind: 'error', ms: 8000, action: { label: t('library.seeWhich'), run: showFailed } });
+      else toast(t('library.scanFinishedOk'), { kind: 'ok' });
     }
   }));
 
@@ -973,15 +975,15 @@ export async function mount(root, parts) {
     if (!S.sel.size) return;
     let dur = 0, size = 0;
     for (const id of S.sel) { const it = S.byId.get(id); dur += it.duration || 0; size += it.size; }
-    selText.textContent = `${plural(S.sel.size, 'video')} selected · ${span(dur)} · ${bytes(size)}`;
+    selText.textContent = `${t('library.videosSelected', { count: S.sel.size })} · ${span(dur)} · ${bytes(size)}`;
   }
   async function selectionPlaylist() {
     const ids = selectedIds().slice(0, 500), q = `lib=${encodeURIComponent(S.lib)}&ids=${ids.map(encodeURIComponent).join(',')}`;
-    if (!onThisComputer()) return copy(`${location.origin}/api/playlist.m3u8?${q}`, 'Playlist link');
+    if (!onThisComputer()) return copy(`${location.origin}/api/playlist.m3u8?${q}`, t('library.playlistLinkCopied'));
     try {
       const j = await post(`/api/playlist/save?${q}`, {});
-      if (j.path) toast(`Saved ${j.count} ${j.count === 1 ? 'item' : 'items'} to ${j.path}` + (j.expires ? ' · its links work for 7 days' : ''), { kind: 'ok', ms: 6000 });
-    } catch (e) { toastError('Could not save the playlist', e); }
+      if (j.path) toast(j.expires ? t('library.savedPlaylistLinks', { count: j.count, path: j.path }) : t('library.savedPlaylist', { count: j.count, path: j.path }), { kind: 'ok', ms: 6000 });
+    } catch (e) { toastError(t('library.couldNotSavePlaylist'), e); }
   }
 
   // ---------------------------------------------------------------- duplicates
@@ -1010,19 +1012,19 @@ export async function mount(root, parts) {
     const sets = duplicateSets();
     const spare = sets.reduce((n, g) => n + g[0].size * (g.length - 1), 0);
     const row = it => h('li.dup-row',
-      h('div.grow', h('div.dup-dir', it.dir || 'Top level'), h('div.dup-name.muted', it.name, ' · ', `added ${ago(addedAt(it))}`)),
+      h('div.grow', h('div.dup-dir', it.dir || t('library.topLevel')), h('div.dup-name.muted', it.name, ' · ', t('library.addedAgoLower', { ago: ago(addedAt(it)) }))),
       h('div.fail-actions',
-        h('button.btn.small', { type: 'button', onclick: () => play([it.id]) }, 'Play'),
+        h('button.btn.small', { type: 'button', onclick: () => play([it.id]) }, t('common.play')),
         canReveal() ? h('button.btn.small', { type: 'button', onclick: () => showInFolder(it) }, revealLabel())
-          : S.info.type === 's3' ? h('button.btn.small', { type: 'button', onclick: () => { m.close(); navigate('storage', S.info.connection, S.info.bucket, ...it.key.split('/').slice(0, -1)); } }, 'Show in Storage') : null,
-        h('button.btn.small', { type: 'button', onclick: () => { m.close(); openLibraryAction('reveal', { lib: S.lib, dir: it.dir, id: it.id }); } }, 'Show in library')));
+          : S.info.type === 's3' ? h('button.btn.small', { type: 'button', onclick: () => { m.close(); navigate('storage', S.info.connection, S.info.bucket, ...it.key.split('/').slice(0, -1)); } }, t('library.showInStorage')) : null,
+        h('button.btn.small', { type: 'button', onclick: () => { m.close(); openLibraryAction('reveal', { lib: S.lib, dir: it.dir, id: it.id }); } }, t('library.showInLibrary'))));
     const body = sets.length
-      ? h('div', h('p.hint', `${plural(sets.length, 'file')} ${sets.length === 1 ? 'has' : 'have'} copies of the same size and length. Removing the extra copies would free ${bytes(spare)}. medialib does not delete anything: open the folder and remove the ones you do not need.`),
+      ? h('div', h('p.hint', t('library.duplicatesHint', { count: sets.length, size: bytes(spare) })),
         h('ul.dup-list', sets.slice(0, 300).map(g => h('li.dup-set',
-          h('div.dup-head', h('strong', stem(g[0].name)), h('span.muted', `${g.length} copies · ${bytes(g[0].size)} each` + (g.find(x => x.duration) ? ' · ' + clock(g.find(x => x.duration).duration) : ''))),
+          h('div.dup-head', h('strong', stem(g[0].name)), h('span.muted', t('library.copiesEach', { count: g.length, size: bytes(g[0].size) }) + (g.find(x => x.duration) ? ' · ' + clock(g.find(x => x.duration).duration) : ''))),
           h('ul.dup-files', g.map(row))))))
-      : h('div.empty-state', icon('check2'), h('h3', 'No duplicates'), h('p', 'No two files in this library have the same size and length.'));
-    const m = modal({ title: 'Duplicates', size: 'wide', body, actions: [{ label: 'Close', primary: true, value: false }] });
+      : h('div.empty-state', icon('check2'), h('h3', t('library.noDuplicates')), h('p', t('library.noDuplicatesText')));
+    const m = modal({ title: t('library.duplicates'), size: 'wide', body, actions: [{ label: t('common.close'), primary: true, value: false }] });
   }
 
   // ---------------------------------------------------------------- saved searches
@@ -1034,7 +1036,7 @@ export async function mount(root, parts) {
     if (!q) return;
     const list = savedList();
     store.setJson('savedSearches', list.includes(q) ? list.filter(x => x !== q) : [...list, q].slice(-20));
-    if (!list.includes(q)) toast('Search saved. It is one click away above the covers', { kind: 'ok' });
+    if (!list.includes(q)) toast(t('library.searchSaved'), { kind: 'ok' });
     paintSaved();
   }
   function useSaved(q) {
@@ -1047,12 +1049,12 @@ export async function mount(root, parts) {
     saveBtn.hidden = !q;
     const on = list.includes(q);
     saveBtn.setAttribute('aria-pressed', String(on));
-    saveBtn.setAttribute('aria-label', on ? 'Remove this saved search' : 'Save this search');
-    saveBtn.title = on ? 'Remove this saved search' : 'Save this search';
+    saveBtn.setAttribute('aria-label', on ? t('library.removeThisSavedSearch') : t('library.saveThisSearch'));
+    saveBtn.title = on ? t('library.removeThisSavedSearch') : t('library.saveThisSearch');
     savedRow.hidden = !list.length;
     fill(savedRow, list.map(x => h('span.chip', { role: 'listitem', class: x === q ? 'on' : '' },
-      h('button.chip-label', { type: 'button', 'aria-pressed': String(x === q), title: x === q ? 'Clear this search' : 'Search for ' + x, onclick: () => useSaved(x) }, icon('search', 'sm'), x),
-      h('button.chip-x', { type: 'button', 'aria-label': 'Remove saved search ' + x, title: 'Remove', onclick: () => { store.setJson('savedSearches', savedList().filter(y => y !== x)); paintSaved(); } }, icon('x', 'sm')))));
+      h('button.chip-label', { type: 'button', 'aria-pressed': String(x === q), title: x === q ? t('library.clearThisSearch') : t('library.searchFor', { q: x }), onclick: () => useSaved(x) }, icon('search', 'sm'), x),
+      h('button.chip-x', { type: 'button', 'aria-label': t('library.removeSavedSearch', { q: x }), title: t('common.remove'), onclick: () => { store.setJson('savedSearches', savedList().filter(y => y !== x)); paintSaved(); } }, icon('x', 'sm')))));
   }
 
   // ---------------------------------------------------------------- type filter
@@ -1064,7 +1066,7 @@ export async function mount(root, parts) {
   };
   function paintTypes() {
     const off = typeCounts().filter(([ext]) => S.hidden.has(ext)).length;
-    $('.types-label', typesBtn).textContent = off ? `Types · ${off} hidden` : 'Types';
+    $('.types-label', typesBtn).textContent = off ? t('library.typesHidden', { count: off }) : t('library.types');
     typesBtn.classList.toggle('on', off > 0);
   }
   function openTypes(anchor) {
@@ -1073,13 +1075,13 @@ export async function mount(root, parts) {
     const list = h('div', rows.map(([ext, c]) => {
       const cb = h('input', { type: 'checkbox', checked: !S.hidden.has(ext), onchange: () => { if (cb.checked) S.hidden.delete(ext); else S.hidden.add(ext); typesChanged(); sync(); } });
       boxes.set(ext, cb);
-      return h('label.type-row', cb, h('span.type-name', ext ? '.' + ext : '(no extension)'), h('span.tag', c.kind), h('span.count', num(c.n)));
+      return h('label.type-row', cb, h('span.type-name', ext ? '.' + ext : t('library.noExtension')), h('span.tag', { video: t('library.kindVideo'), audio: t('library.kindAudio') }[c.kind] || c.kind), h('span.count', num(c.n)));
     }));
-    const all = h('button.btn.small', { type: 'button', onclick: () => { S.hidden.clear(); typesChanged(); sync(); } }, 'Show all');
-    const common = h('button.btn.small', { type: 'button', onclick: () => { S.hidden = defaultHidden(); typesChanged(); sync(); } }, 'Common video only');
+    const all = h('button.btn.small', { type: 'button', onclick: () => { S.hidden.clear(); typesChanged(); sync(); } }, t('library.showAll'));
+    const common = h('button.btn.small', { type: 'button', onclick: () => { S.hidden = defaultHidden(); typesChanged(); sync(); } }, t('library.commonVideoOnly'));
     const sync = () => { for (const [ext, cb] of boxes) cb.checked = !S.hidden.has(ext); all.disabled = !S.hidden.size; common.disabled = sameSet(S.hidden, defaultHidden()); };
     sync();
-    typesMenu = showMenu({ anchor, items: [{ head: 'File types shown' }, { node: list }, { node: h('div.menu-actions', common, all) }] });
+    typesMenu = showMenu({ anchor, items: [{ head: t('library.fileTypesShown') }, { node: list }, { node: h('div.menu-actions', common, all) }] });
   }
   function typesChanged() {
     store.set('hiddenTypes', JSON.stringify([...S.hidden]));
@@ -1088,16 +1090,16 @@ export async function mount(root, parts) {
   }
 
   function openOptions(anchor) {
-    const sizeSeg = h('div.seg', ['s', 'm', 'l'].map(sz => h('button', { type: 'button', dataset: { size: sz }, 'aria-pressed': String(store.get('size', 'm') === sz), onclick: () => { setSize(sz); for (const b of sizeSeg.children) b.setAttribute('aria-pressed', String(b.dataset.size === sz)); } }, { s: 'Small', m: 'Medium', l: 'Large' }[sz])));
-    const playerSel = h('select', { 'aria-label': 'Play with', onchange: () => { S.player = playerSel.value; store.set('player', S.player); } },
+    const sizeSeg = h('div.seg', ['s', 'm', 'l'].map(sz => h('button', { type: 'button', dataset: { size: sz }, 'aria-pressed': String(store.get('size', 'm') === sz), onclick: () => { setSize(sz); for (const b of sizeSeg.children) b.setAttribute('aria-pressed', String(b.dataset.size === sz)); } }, { s: t('library.sizeSmall'), m: t('library.sizeMedium'), l: t('library.sizeLarge') }[sz])));
+    const playerSel = h('select', { 'aria-label': t('library.playWith'), onchange: () => { S.player = playerSel.value; store.set('player', S.player); } },
       state.players.map(p => h('option', { value: p.id }, p.name)));
     playerSel.value = S.player || '';
-    const showSeg = h('div.seg', [['folders', 'Folders'], ['all', 'All videos']].map(([v, t]) => h('button', { type: 'button', 'aria-pressed': String(store.get('libDisplay', 'folders') === v),
-      onclick: () => { store.set('libDisplay', v); for (const b of showSeg.children) b.setAttribute('aria-pressed', String(b.textContent === t)); render(); } }, t)));
+    const showSeg = h('div.seg', [['folders', t('library.folders')], ['all', t('library.allVideos')]].map(([v, label]) => h('button', { type: 'button', 'aria-pressed': String(store.get('libDisplay', 'folders') === v),
+      onclick: () => { store.set('libDisplay', v); for (const b of showSeg.children) b.setAttribute('aria-pressed', String(b.textContent === label)); render(); } }, label)));
     showMenu({ anchor, align: 'right', items: [
-      { head: 'Show' }, { node: showSeg }, { sep: true },
-      { head: 'Play with' }, { node: playerSel }, { sep: true },
-      { head: 'Cover size' }, { node: sizeSeg },
+      { head: t('library.show') }, { node: showSeg }, { sep: true },
+      { head: t('library.playWith') }, { node: playerSel }, { sep: true },
+      { head: t('library.coverSize') }, { node: sizeSeg },
     ] });
   }
   function setSize(size) {
@@ -1113,7 +1115,7 @@ export async function mount(root, parts) {
     cover.classList.remove('scrubbing');
     const img = $('img', cover);
     if (img) img.src = thumb(it, it.cover ?? 0);
-    $$('.ticks i', cover).forEach(t => t.classList.remove('on'));
+    $$('.ticks i', cover).forEach(x => x.classList.remove('on'));
     scrubbing = null;
   }
   function onPointerMove(e) {
@@ -1133,7 +1135,7 @@ export async function mount(root, parts) {
     if (idx !== scrubbing.idx) {
       scrubbing.idx = idx;
       $('img', cover).src = thumb(it, idx);
-      $$('.ticks i', cover).forEach((t, j) => t.classList.toggle('on', j === idx));
+      $$('.ticks i', cover).forEach((x, j) => x.classList.toggle('on', j === idx));
     }
   }
 
@@ -1157,13 +1159,13 @@ export async function mount(root, parts) {
     const it = S.byId.get(cardEl.dataset.id);
     const many = S.sel.has(it.id) && S.sel.size > 1;
     contextMenu(e, [
-      many ? { label: `Play ${S.sel.size} selected`, icon: 'play', onClick: () => play(selectedIds()) } : { label: 'Play', icon: 'play', onClick: () => play([it.id]) },
-      { label: S.sel.has(it.id) ? 'Deselect' : 'Select', icon: 'check', onClick: () => pickCard(it.id, false) },
-      { label: 'Details…', icon: 'info', onClick: () => showDetails(it) },
+      many ? { label: t('library.playSelected', { count: S.sel.size }), icon: 'play', onClick: () => play(selectedIds()) } : { label: t('common.play'), icon: 'play', onClick: () => play([it.id]) },
+      { label: S.sel.has(it.id) ? t('library.deselect') : t('library.select'), icon: 'check', onClick: () => pickCard(it.id, false) },
+      { label: t('library.details'), icon: 'info', onClick: () => showDetails(it) },
       canReveal() ? { label: revealLabel(), icon: 'folder', onClick: () => showInFolder(it) } : null,
       { label: linkLabel(), icon: 'link', onClick: () => copyLink(it) },
-      S.info.type === 'local' && onThisComputer() ? null : { label: S.info.type === 'local' ? 'Copy file path' : 'Copy object key', icon: 'copy', onClick: () => copy(S.info.type === 'local' ? localPath(S.info.location, it.key) : it.key, S.info.type === 'local' ? 'File path' : 'Key') },
-      S.info.type === 's3' ? { label: 'Show in Storage', icon: 'storage', onClick: () => navigate('storage', S.info.connection, S.info.bucket, ...it.key.split('/').slice(0, -1)) } : null,
+      S.info.type === 'local' && onThisComputer() ? null : { label: S.info.type === 'local' ? t('library.copyFilePath') : t('library.copyObjectKey'), icon: 'copy', onClick: () => copy(S.info.type === 'local' ? localPath(S.info.location, it.key) : it.key, S.info.type === 'local' ? t('library.filePathCopied') : t('library.keyCopied')) },
+      S.info.type === 's3' ? { label: t('library.showInStorage'), icon: 'storage', onClick: () => navigate('storage', S.info.connection, S.info.bucket, ...it.key.split('/').slice(0, -1)) } : null,
     ].filter(Boolean));
   });
   groups.addEventListener('pointermove', onPointerMove);
@@ -1203,7 +1205,7 @@ export async function mount(root, parts) {
       if (wanted !== S.lib) { await switchLibrary(wanted, path.join('/')); paintSwitch(); }
       else applyScope(path.join('/'));
       consumeReveal();
-    } catch (e) { toastError('Could not load the library', e); }
+    } catch (e) { toastError(t('library.couldNotLoad'), e); }
   }
   await update(parts);
   paintSwitch();

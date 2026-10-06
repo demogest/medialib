@@ -1,5 +1,6 @@
 // Application shell: sidebar, command palette, shortcuts, routing.
 import { $ } from './lib/dom.js';
+import { t } from './lib/i18n.js';
 import { startRouter } from './lib/router.js';
 import { state, startWatcher, loadConnections, loadLibraries, loadPlayers, loadSystem, loadUpdate } from './lib/state.js';
 import { toastError } from './lib/ui.js';
@@ -23,7 +24,7 @@ async function boot() {
   try {
     await Promise.all([loadLibraries(), loadConnections(), loadPlayers(), loadSystem()]);
   } catch (e) {
-    toastError('Could not reach the server', e);
+    toastError(t('app.serverUnreachable'), e);
   }
   startWatcher();
   // The server looks for a new version itself as it starts (and once a day after): read what it found.

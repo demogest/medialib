@@ -3,28 +3,29 @@
 import { h, fill } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { get, post, put, del } from '../lib/api.js';
-import { ago, bytes, plural } from '../lib/fmt.js';
+import { ago, bytes } from '../lib/fmt.js';
+import { LANGUAGES, chosen, setLanguage, t } from '../lib/i18n.js';
 import { loadPlayers, loadUpdate, on, pokeWatcher, state } from '../lib/state.js';
 import { markdown } from '../lib/markdown.js';
 import { store } from '../lib/store.js';
 import { setTheme } from '../shell/sidebar.js';
 import { confirmDialog, modal, promptDialog, toast, toastError } from '../lib/ui.js';
 
-const INTERVALS = [[0, 'Off'], [15, 'Every 15 minutes'], [30, 'Every 30 minutes'], [60, 'Every hour'], [180, 'Every 3 hours'], [360, 'Every 6 hours'], [1440, 'Once a day']];
-const QUALITY = [[0, 'Balanced'], [45, 'Smaller files'], [85, 'Sharper']];
-const WORKERS = [[0, 'Automatic'], [2, '2'], [4, '4'], [8, '8'], [16, '16'], [32, '32']];
-const UPDATES = [['off', 'Off'], ['notify', 'Tell me'], ['auto', 'Install automatically']];
+const INTERVALS = [[0, t('settings.intervalOff')], [15, t('settings.interval15m')], [30, t('settings.interval30m')], [60, t('settings.interval1h')], [180, t('settings.interval3h')], [360, t('settings.interval6h')], [1440, t('settings.intervalDaily')]];
+const QUALITY = [[0, t('settings.qualityBalanced')], [45, t('settings.qualitySmaller')], [85, t('settings.qualitySharper')]];
+const WORKERS = [[0, t('settings.workersAuto')], [2, '2'], [4, '4'], [8, '8'], [16, '16'], [32, '32']];
+const UPDATES = [['off', t('settings.updatesOff')], ['notify', t('settings.updatesNotify')], ['auto', t('settings.updatesAuto')]];
 const TOOLS = [
-  ['ffmpeg', 'Decodes keyframes into covers. Required for indexing.'],
-  ['ffprobe', 'Reads duration, resolution and codec.'],
-  ['rclone', 'Optional: only for older libraries that read through an rclone remote.'],
+  ['ffmpeg', t('settings.toolFfmpeg')],
+  ['ffprobe', t('settings.toolFfprobe')],
+  ['rclone', t('settings.toolRclone')],
 ];
 const base = p => p.split(/[\\/]/).pop().replace(/\.(exe|app)$/i, '');
 
 export async function mount(root, parts = []) {
   const body = h('div');
   root.append(h('div.page', h('div.page-inner',
-    h('div.page-head', h('div', h('h1', 'Settings'), h('p', 'How medialib looks, indexes, plays and updates.'))), body)));
+    h('div.page-head', h('div', h('h1', t('settings.title')), h('p', t('settings.subtitle')))), body)));
 
   let info = null, upd = null, moving = null, poll = null, installing = false;
   // One bar for the whole update, kept across renders so it glides from value to value instead of starting over.
@@ -39,9 +40,9 @@ export async function mount(root, parts = []) {
     upd = info && info.can_edit ? await loadUpdate() : null;
     render();
   }
-  const saved = j => { info = j; state.system = j; render(); toast('Saved', { kind: 'ok', ms: 1500 }); };
+  const saved = j => { info = j; state.system = j; render(); toast(t('settings.saved'), { kind: 'ok', ms: 1500 }); };
   async function save(patch) {
-    try { saved(await put('/api/settings', patch)); } catch (e) { toastError('Could not save', e); render(); }
+    try { saved(await put('/api/settings', patch)); } catch (e) { toastError(t('settings.couldNotSave'), e); render(); }
   }
 
   // ---------------------------------------------------------------- pieces
@@ -50,7 +51,7 @@ export async function mount(root, parts = []) {
   const choice = (list, value, onChange, label, other = String) => {
     const known = list.some(([v]) => v === value);
     const sel = h('select', { 'aria-label': label, disabled: !editable() },
-      [...list, ...(known ? [] : [[value, other(value)]])].map(([v, t]) => h('option', { value: String(v) }, t)));
+      [...list, ...(known ? [] : [[value, other(value)]])].map(([v, label]) => h('option', { value: String(v) }, label)));
     sel.value = String(value);
     sel.addEventListener('change', () => onChange(typeof value === 'number' ? Number(sel.value) : sel.value));
     return sel;
@@ -61,9 +62,15 @@ export async function mount(root, parts = []) {
   // ---------------------------------------------------------------- appearance
   function appearance() {
     const theme = store.get('theme', 'system');
-    const seg = h('div.seg', ['system', 'light', 'dark'].map(t => h('button', { type: 'button', 'aria-pressed': String(t === theme),
-      onclick: () => { setTheme(t); render(); } }, t[0].toUpperCase() + t.slice(1))));
-    return [h('div.section-title', 'Appearance'), h('div.card-box.set-card', row('Theme', 'Follow the system, or pick one.', seg))];
+    const seg = h('div.seg', [['system', t('settings.themeSystem')], ['light', t('settings.themeLight')], ['dark', t('settings.themeDark')]].map(([mode, label]) => h('button', { type: 'button', 'aria-pressed': String(mode === theme),
+      onclick: () => { setTheme(mode); render(); } }, label)));
+    // The language belongs to this browser, like the theme: someone else on another device keeps theirs.
+    const language = h('select', { 'aria-label': t('settings.language') },
+      [['', t('settings.languageSystem')], ...LANGUAGES].map(([code, name]) => h('option', { value: code, lang: code || null }, name)));
+    language.value = chosen;
+    language.addEventListener('change', () => setLanguage(language.value));
+    return [h('div.section-title', t('settings.appearance')), h('div.card-box.set-card', row(t('settings.theme'), t('settings.themeHint'), seg),
+      row(t('settings.language'), t('settings.languageHint'), language))];
   }
 
   // ---------------------------------------------------------------- updates (shown in About)
@@ -74,33 +81,33 @@ export async function mount(root, parts = []) {
       // done and total are left out of the JSON while 0; with no size known, the bar just shows that something is happening.
       const done = upd.done || 0, total = upd.total || 0;
       const pct = total ? Math.min(100, Math.round(100 * done / total)) : null;
-      const hint = total && done >= total ? 'Putting the new version in place…'
-        : pct === null ? (done ? `${bytes(done)} so far` : 'Starting…') : `${bytes(done)} of ${bytes(total)} · ${pct}%`;
-      rows.push(row(`Downloading ${upd.latest}…`, hint, setBar(pct)));
+      const hint = total && done >= total ? t('settings.updatePlacing')
+        : pct === null ? (done ? t('settings.updateSoFar', { size: bytes(done) }) : t('settings.updateStarting')) : t('settings.updateProgress', { done: bytes(done), total: bytes(total), percent: pct });
+      rows.push(row(t('settings.updateDownloading', { version: upd.latest }), hint, setBar(pct)));
     } else if (upd.ready && installing) {
-      rows.push(row(`Restarting with ${upd.latest}…`, 'medialib closes and opens again by itself.', setBar(100)));
+      rows.push(row(t('settings.updateRestarting', { version: upd.latest }), t('settings.updateRestartingHint'), setBar(100)));
     } else if (upd.ready) {
-      rows.push(row(`Version ${upd.latest} is ready`, 'Restart medialib to finish the update.',
-        here() ? btn('Restart now', () => install(), { primary: true, icon: 'refresh' }) : null));
+      rows.push(row(t('settings.updateReady', { version: upd.latest }), t('settings.updateReadyHint'),
+        here() ? btn(t('settings.restartNow'), () => install(), { primary: true, icon: 'refresh' }) : null));
     } else if (upd.available) {
-      rows.push(row(`Version ${upd.latest} is available`, upd.can_install ? `You have ${upd.current}.${upd.published ? ' Released ' + ago(upd.published) + '.' : ''}` : upd.why,
-        upd.notes ? btn('What’s new', () => notes(upd)) : null,
-        upd.can_install && here() ? btn('Update now', () => install(), { primary: true, icon: 'download' })
-          : upd.page ? h('a.btn.small', { href: upd.page, target: '_blank', rel: 'noopener' }, icon('external', 'sm'), 'Download') : null));
+      rows.push(row(t('settings.updateAvailable', { version: upd.latest }), upd.can_install ? (upd.published ? t('settings.youHaveReleased', { version: upd.current, when: ago(upd.published) }) : t('settings.youHave', { version: upd.current })) : upd.why,
+        upd.notes ? btn(t('settings.whatsNew'), () => notes(upd)) : null,
+        upd.can_install && here() ? btn(t('settings.updateNow'), () => install(), { primary: true, icon: 'download' })
+          : upd.page ? h('a.btn.small', { href: upd.page, target: '_blank', rel: 'noopener' }, icon('external', 'sm'), t('settings.download')) : null));
     } else if (upd.state === 'error') {
-      rows.push(row('Could not look for updates', upd.error, btn('Try again', () => check())));
+      rows.push(row(t('settings.couldNotCheck'), upd.error, btn(t('common.retry'), () => check())));
     } else {
-      rows.push(row(upd.latest ? 'medialib is up to date' : 'Updates', upd.checked ? `Version ${upd.current} · looked ${ago(upd.checked)}` : `Version ${upd.current}`,
-        upd.latest && upd.notes ? btn('What’s new', () => notes(upd)) : null,
-        btn('Check now', () => check(), { icon: 'refresh' })));
+      rows.push(row(upd.latest ? t('settings.upToDate') : t('settings.updates'), upd.checked ? t('settings.versionChecked', { version: upd.current, when: ago(upd.checked) }) : t('settings.version', { version: upd.current }),
+        upd.latest && upd.notes ? btn(t('settings.whatsNew'), () => notes(upd)) : null,
+        btn(t('settings.checkNow'), () => check(), { icon: 'refresh' })));
     }
-    rows.push(row('Automatic updates', info.mode === 'desktop' ? 'Look for a new version every time medialib starts; or also download it, and install it as medialib closes.'
-      : 'Look for a new version when medialib starts, and once a day while it runs, and say so here. A server is updated by replacing its program (or image).',
-    choice(info.mode === 'desktop' ? UPDATES : UPDATES.slice(0, 2), info.updates === 'auto' && info.mode !== 'desktop' ? 'notify' : info.updates, v => save({ updates: v }), 'Automatic updates')));
+    rows.push(row(t('settings.autoUpdates'), info.mode === 'desktop' ? t('settings.autoUpdatesDesktopHint')
+      : t('settings.autoUpdatesServerHint'),
+    choice(info.mode === 'desktop' ? UPDATES : UPDATES.slice(0, 2), info.updates === 'auto' && info.mode !== 'desktop' ? 'notify' : info.updates, v => save({ updates: v }), t('settings.autoUpdates'))));
     return rows;
   }
   async function check() {
-    try { upd = await post('/api/update', { action: 'check' }); state.update = upd; } catch (e) { toastError('Could not look for updates', e); }
+    try { upd = await post('/api/update', { action: 'check' }); state.update = upd; } catch (e) { toastError(t('settings.couldNotCheck'), e); }
     render();
     if (upd && upd.available && !upd.ready && upd.state !== 'downloading' && (upd.notes || (upd.releases || []).length)) notes(upd); // asked for: say what the new version brings
   }
@@ -111,34 +118,34 @@ export async function mount(root, parts = []) {
       installing = true;
       render();
       watchUpdate();
-    } catch (e) { toastError('Could not update', e); }
+    } catch (e) { toastError(t('settings.couldNotUpdate'), e); }
   }
   // While the update downloads: its progress, read often (a release is a few MB and can arrive in under a second);
   // then the app closes and the new version opens by itself.
   function watchUpdate() {
     clearInterval(poll);
     poll = setInterval(async () => {
-      try { upd = await get('/api/update'); state.update = upd; render(); } catch { clearInterval(poll); toast('Restarting with the new version…', { ms: 10000 }); return; }
-      if (upd.state === 'error') { clearInterval(poll); installing = false; render(); toastError('The update failed', upd.error); }
+      try { upd = await get('/api/update'); state.update = upd; render(); } catch { clearInterval(poll); toast(t('settings.restartingNew'), { ms: 10000 }); return; }
+      if (upd.state === 'error') { clearInterval(poll); installing = false; render(); toastError(t('settings.updateFailed'), upd.error); }
     }, 250);
   }
   // What changed in every version since this one (or in this one, when it is the latest), newest first.
   function notes(u) {
     const list = u.releases && u.releases.length ? u.releases : [{ version: u.latest, notes: u.notes, published: u.published, page: u.page }];
-    const title = list.length > 1 ? `What’s new since ${u.current}` : `What’s new in ${list[0].version}`;
+    const title = list.length > 1 ? t('settings.whatsNewSince', { version: u.current }) : t('settings.whatsNewIn', { version: list[0].version });
     const page = list[0].page || u.page;
     const body = r => {
       // "Changes since v3.3.1" says again what the version heading does; the downloads table is the release page's.
-      const els = markdown((r.notes || '').replace(/^\s*#{1,6}\s+changes since\b.*\n/i, ''), { skip: t => /^downloads$/i.test(t.trim()) });
-      return els.length ? els : h('p.muted', 'This release has no notes.');
+      const els = markdown((r.notes || '').replace(/^\s*#{1,6}\s+changes since\b.*\n/i, ''), { skip: text => /^downloads$/i.test(text.trim()) });
+      return els.length ? els : h('p.muted', t('settings.noNotes'));
     };
     modal({ title, size: 'wide', body: h('div.notes', list.map(r => h('section.notes-release',
-      h('h2.notes-version', `Version ${r.version}`, r.version === u.current ? h('span.notes-when', ' · the one you have') : null,
-        r.published ? h('span.notes-when', ` · released ${ago(r.published)}`) : null),
+      h('h2.notes-version', t('settings.version', { version: r.version }), r.version === u.current ? h('span.notes-when', t('settings.notesYours')) : null,
+        r.published ? h('span.notes-when', t('settings.notesReleased', { when: ago(r.published) })) : null),
       body(r)))),
-      actions: [page ? { label: 'Open on GitHub', left: true, onClick: () => window.open(page, '_blank') } : null,
-        canUpdate(u) ? { label: 'Close' } : { label: 'Close', primary: true },
-        canUpdate(u) ? { label: `Update to ${u.latest}`, primary: true, onClick: () => install() } : null].filter(Boolean) });
+      actions: [page ? { label: t('settings.openOnGitHub'), left: true, onClick: () => window.open(page, '_blank') } : null,
+        canUpdate(u) ? { label: t('common.close') } : { label: t('common.close'), primary: true },
+        canUpdate(u) ? { label: t('settings.updateTo', { version: u.latest }), primary: true, onClick: () => install() } : null].filter(Boolean) });
   }
   // Whether this page can update medialib right now: a newer version this copy installs itself, on this computer.
   function canUpdate(u) {
@@ -148,12 +155,12 @@ export async function mount(root, parts = []) {
   // ---------------------------------------------------------------- indexing
   function indexing() {
     const auto = info.auto_index_env
-      ? h('span.mono', { title: 'Set by MEDIALIB_AUTO_INDEX' }, info.auto_index ? `Every ${info.auto_index} min` : 'Off')
-      : choice(INTERVALS, info.auto_index, v => save({ auto_index: v }), 'Automatic indexing', v => `Every ${v} minutes`);
-    return [h('div.section-title', 'Indexing'), h('div.card-box.set-card',
-      row('Automatic indexing', info.auto_index_env ? 'MEDIALIB_AUTO_INDEX sets it on this computer.' : 'Bring every library up to date by itself: new files get covers, removed ones go.', auto),
-      row('Cover quality', 'For covers made from now on. Sharper covers take more space.', choice(QUALITY, info.thumb_quality || 0, v => save({ thumb_quality: v }), 'Cover quality', v => `Quality ${v}`)),
-      row('Files at once', 'How many files are read in parallel while indexing. Automatic suits most disks and connections.', choice(WORKERS, info.workers, v => save({ workers: v }), 'Files at once')))];
+      ? h('span.mono', { title: t('settings.setByEnv') }, info.auto_index ? t('settings.everyMin', { minutes: info.auto_index }) : t('settings.intervalOff'))
+      : choice(INTERVALS, info.auto_index, v => save({ auto_index: v }), t('settings.autoIndex'), v => t('settings.everyMinutes', { minutes: v }));
+    return [h('div.section-title', t('settings.indexing')), h('div.card-box.set-card',
+      row(t('settings.autoIndex'), info.auto_index_env ? t('settings.autoIndexEnvHint') : t('settings.autoIndexHint'), auto),
+      row(t('settings.coverQuality'), t('settings.coverQualityHint'), choice(QUALITY, info.thumb_quality || 0, v => save({ thumb_quality: v }), t('settings.coverQuality'), v => t('settings.qualityValue', { value: v }))),
+      row(t('settings.workers'), t('settings.workersHint'), choice(WORKERS, info.workers, v => save({ workers: v }), t('settings.workers'))))];
   }
 
   // ---------------------------------------------------------------- players
@@ -162,66 +169,66 @@ export async function mount(root, parts = []) {
     const def = all.find(p => p.id === info.default_player && !p.hidden && !p.missing) ? info.default_player : (all.find(p => !p.hidden && !p.missing) || {}).id;
     const hidden = all.filter(p => p.hidden);
     const rows = all.filter(p => !p.hidden).map(p => h('div.set-row.player-row',
-      h('button.radio', { type: 'button', role: 'radio', 'aria-checked': String(p.id === def), 'aria-label': `Use ${p.name} by default`, title: 'Use by default',
+      h('button.radio', { type: 'button', role: 'radio', 'aria-checked': String(p.id === def), 'aria-label': t('settings.useNameByDefault', { name: p.name }), title: t('settings.useByDefault'),
         disabled: !editable() || p.missing, onclick: () => p.id !== def && save({ default_player: p.id }) }),
-      h('div.grow', h('div.set-name', p.name, p.id === def ? h('span.tag.accent', 'Default') : null, p.custom ? h('span.tag', 'Added') : null),
-        p.missing ? h('div.bad-text', icon('alert', 'sm'), 'Not found: ', p.path) : p.path ? h('code.mono.set-path', p.path) : h('div.muted', 'Opens with the program your system uses for the file')),
-      p.id !== 'system' && editable() && here() ? h('button.icon-btn', { type: 'button', 'aria-label': `Remove ${p.name}`, title: 'Remove from the list', onclick: () => removePlayer(p) }, icon('trash', 'sm')) : null));
+      h('div.grow', h('div.set-name', p.name, p.id === def ? h('span.tag.accent', t('settings.defaultTag')) : null, p.custom ? h('span.tag', t('settings.addedTag')) : null),
+        p.missing ? h('div.bad-text', icon('alert', 'sm'), t('settings.playerNotFound', { path: p.path })) : p.path ? h('code.mono.set-path', p.path) : h('div.muted', t('settings.systemPlayerHint'))),
+      p.id !== 'system' && editable() && here() ? h('button.icon-btn', { type: 'button', 'aria-label': t('settings.removeName', { name: p.name }), title: t('settings.removeFromList'), onclick: () => removePlayer(p) }, icon('trash', 'sm')) : null));
     const foot = editable() && here() ? h('div.set-row.set-foot',
-      btn('Add a player…', () => addPlayer(), { icon: 'plus' }),
-      btn('Look again', async () => { try { await loadPlayers(await post('/api/players/detect', {})); await refresh(); toast('Players looked for again', { kind: 'ok' }); } catch (e) { toastError('Could not look for players', e); } },
-        { icon: 'refresh', title: 'Look for players installed since medialib started' }),
-      hidden.length ? btn(`Bring back ${plural(hidden.length, 'removed player')}`, () => restorePlayers(), { title: hidden.map(p => p.name).join(', ') }) : null) : null;
-    return [h('div.section-title', 'Players'), h('div.card-box.set-card', { role: 'radiogroup', 'aria-label': 'Default player' }, rows, foot)];
+      btn(t('settings.addPlayerButton'), () => addPlayer(), { icon: 'plus' }),
+      btn(t('settings.lookAgain'), async () => { try { await loadPlayers(await post('/api/players/detect', {})); await refresh(); toast(t('settings.lookedAgain'), { kind: 'ok' }); } catch (e) { toastError(t('settings.couldNotLookPlayers'), e); } },
+        { icon: 'refresh', title: t('settings.lookAgainHint') }),
+      hidden.length ? btn(t('settings.bringBack', { count: hidden.length }), () => restorePlayers(), { title: hidden.map(p => p.name).join(', ') }) : null) : null;
+    return [h('div.section-title', t('settings.players')), h('div.card-box.set-card', { role: 'radiogroup', 'aria-label': t('settings.defaultPlayer') }, rows, foot)];
   }
   async function afterPlayers(j) { await loadPlayers(j); await refresh(); }
   async function removePlayer(p) {
-    const ok = await confirmDialog({ title: `Remove ${p.name}?`, message: p.custom ? `${p.name} is taken off the list.` : `${p.name} stays installed; medialib stops offering it.`,
-      detail: p.custom ? null : 'Bring it back any time from this page.', confirm: 'Remove', danger: true });
+    const ok = await confirmDialog({ title: t('settings.removePlayerTitle', { name: p.name }), message: p.custom ? t('settings.removeCustomMessage', { name: p.name }) : t('settings.removeFoundMessage', { name: p.name }),
+      detail: p.custom ? null : t('settings.removeFoundDetail'), confirm: t('common.remove'), danger: true });
     if (!ok) return;
-    try { await afterPlayers(await del('/api/players/' + encodeURIComponent(p.id))); } catch (e) { toastError('Could not remove the player', e); }
+    try { await afterPlayers(await del('/api/players/' + encodeURIComponent(p.id))); } catch (e) { toastError(t('settings.couldNotRemovePlayer'), e); }
   }
   async function restorePlayers() {
-    try { await afterPlayers(await post('/api/players/restore', {})); } catch (e) { toastError('Could not bring the players back', e); }
+    try { await afterPlayers(await post('/api/players/restore', {})); } catch (e) { toastError(t('settings.couldNotRestorePlayers'), e); }
   }
   function addPlayer() {
     const name = h('input.input', { placeholder: 'mpv, VLC, PotPlayer…', autocomplete: 'off' });
-    const path = h('input.input.mono', { placeholder: info.platform.startsWith('windows') ? 'C:\\Program Files\\…\\player.exe' : '/Applications/… or a program name', autocomplete: 'off', spellcheck: 'false' });
-    const args = h('input.input.mono', { placeholder: 'e.g. --fullscreen', autocomplete: 'off', spellcheck: 'false' });
+    const path = h('input.input.mono', { placeholder: info.platform.startsWith('windows') ? 'C:\\Program Files\\…\\player.exe' : t('settings.playerPathPlaceholder'), autocomplete: 'off', spellcheck: 'false' });
+    const args = h('input.input.mono', { placeholder: t('settings.argsPlaceholder'), autocomplete: 'off', spellcheck: 'false' });
     const err = h('p.form-error', { hidden: true });
     const browse = h('button.btn', { type: 'button', onclick: async () => {
       try {
-        const j = await post('/api/pick-file', { title: 'Choose the player’s program' });
+        const j = await post('/api/pick-file', { title: t('settings.choosePlayerProgram') });
         if (j.path) { path.value = j.path; if (!name.value.trim()) name.value = base(j.path); }
       } catch (x) { err.textContent = x.message; err.hidden = false; }
-    } }, 'Browse…');
-    modal({ title: 'Add a player', body: [err,
-      h('div.field', h('label', 'Program'), h('div.input-wrap', path, browse), h('p.hint', 'The player’s program file, or its name if it is on the PATH.')),
-      h('div.field', h('label', 'Name'), name),
-      h('div.field', h('label', 'Extra arguments (optional)'), args, h('p.hint', 'Put before the file on every play.'))],
-    actions: [{ label: 'Cancel' }, { label: 'Add', primary: true, onClick: async () => {
-      try { await afterPlayers(await post('/api/players', { name: name.value, path: path.value, args: args.value })); toast('Player added', { kind: 'ok' }); } catch (x) { err.textContent = x.message; err.hidden = false; return false; }
+    } }, t('settings.browse'));
+    modal({ title: t('settings.addPlayerTitle'), body: [err,
+      h('div.field', h('label', t('settings.program')), h('div.input-wrap', path, browse), h('p.hint', t('settings.programHint'))),
+      h('div.field', h('label', t('settings.name')), name),
+      h('div.field', h('label', t('settings.extraArgs')), args, h('p.hint', t('settings.extraArgsHint')))],
+    actions: [{ label: t('common.cancel') }, { label: t('common.add'), primary: true, onClick: async () => {
+      try { await afterPlayers(await post('/api/players', { name: name.value, path: path.value, args: args.value })); toast(t('settings.playerAdded'), { kind: 'ok' }); } catch (x) { err.textContent = x.message; err.hidden = false; return false; }
     } }] });
   }
 
   // ---------------------------------------------------------------- tools
   function tools() {
-    return [h('div.section-title', 'Tools'), h('div.card-box.set-card', TOOLS.map(([name, why]) => {
+    return [h('div.section-title', t('settings.tools')), h('div.card-box.set-card', TOOLS.map(([name, why]) => {
       const found = info[name], set = info.tools?.[name], custom = set && set !== name;
       return h('div.set-row', h('div.grow', h('div.set-name', name), h('div.muted', why), typeof found === 'string' ? h('code.mono.set-path', found) : null),
-        found ? h('span.tag.ok', icon('check', 'sm'), 'Found') : h('span.tag.warn', 'Not found'),
-        editable() ? btn(custom ? 'Change…' : 'Choose…', () => chooseTool(name, set), { title: `Use a ${name} of your choice` }) : null,
-        editable() && custom ? btn('Default', () => save({ [name]: '' }), { title: `Look for ${name} on the PATH again` }) : null);
+        found ? h('span.tag.ok', icon('check', 'sm'), t('settings.found')) : h('span.tag.warn', t('settings.notFound')),
+        editable() ? btn(custom ? t('settings.change') : t('settings.choose'), () => chooseTool(name, set), { title: t('settings.chooseToolHint', { name }) }) : null,
+        editable() && custom ? btn(t('settings.default'), () => save({ [name]: '' }), { title: t('settings.toolDefaultHint', { name }) }) : null);
     }))];
   }
   function chooseTool(name, current) {
     const path = h('input.input.mono', { value: current && current !== name ? current : '', placeholder: info.platform.startsWith('windows') ? `C:\\…\\${name}.exe` : `/usr/local/bin/${name}`, autocomplete: 'off', spellcheck: 'false' });
     const err = h('p.form-error', { hidden: true });
     const browse = here() ? h('button.btn', { type: 'button', onclick: async () => {
-      try { const j = await post('/api/pick-file', { title: `Choose ${name}` }); if (j.path) path.value = j.path; } catch (x) { err.textContent = x.message; err.hidden = false; }
-    } }, 'Browse…') : null;
-    modal({ title: `Use another ${name}`, body: [err, h('div.field', h('label', 'Program'), h('div.input-wrap', path, browse), h('p.hint', `Leave it empty to use the ${name} on the PATH.`))],
-      actions: [{ label: 'Cancel' }, { label: 'Use it', primary: true, onClick: async () => {
+      try { const j = await post('/api/pick-file', { title: t('settings.chooseName', { name }) }); if (j.path) path.value = j.path; } catch (x) { err.textContent = x.message; err.hidden = false; }
+    } }, t('settings.browse')) : null;
+    modal({ title: t('settings.useAnother', { name }), body: [err, h('div.field', h('label', t('settings.program')), h('div.input-wrap', path, browse), h('p.hint', t('settings.useAnotherHint', { name })))],
+      actions: [{ label: t('common.cancel') }, { label: t('settings.useIt'), primary: true, onClick: async () => {
         try { saved(await put('/api/settings', { [name]: path.value })); } catch (x) { err.textContent = x.message; err.hidden = false; return false; }
       } }] });
   }
@@ -229,73 +236,73 @@ export async function mount(root, parts = []) {
   // ---------------------------------------------------------------- files
   function files() {
     if (!info.config_file) return []; // not shown to a browser that may only watch
-    const t = moving && state.tasks.find(x => x.id === moving);
-    const cacheHint = t && t.state === 'running' ? `Moving… ${plural(t.done, 'file')} of ${t.total} · ${bytes(t.bytes)}` : 'The index of every library and its covers. They can grow large: put them on a roomy disk.';
-    return [h('div.section-title', 'Files'), h('div.card-box.set-card',
-      h('div.set-row', h('div.grow', h('div.set-name', 'Index and covers'), h('div.muted', cacheHint), h('code.mono.set-path', info.cache_dir)),
-        here() ? btn('Open', () => openFolder('cache'), { icon: 'folder' }) : null,
-        editable() ? btn('Move…', () => moveCache(), { disabled: !!(t && t.state === 'running') }) : null,
-        editable() && info.cache_custom ? btn('Default', () => moveCache(true), { title: 'Move them back beside the settings', disabled: !!(t && t.state === 'running') }) : null),
-      h('div.set-row', h('div.grow', h('div.set-name', 'Settings'), h('div.muted', 'Libraries, connections and these settings (config.json). MEDIALIB_HOME picks another folder.'), h('code.mono.set-path', info.config_file)),
-        here() ? btn('Open', () => openFolder('config'), { icon: 'folder' }) : null))];
+    const task = moving && state.tasks.find(x => x.id === moving);
+    const cacheHint = task && task.state === 'running' ? t('settings.moving', { done: task.done, total: task.total, size: bytes(task.bytes) }) : t('settings.cacheHint');
+    return [h('div.section-title', t('settings.files')), h('div.card-box.set-card',
+      h('div.set-row', h('div.grow', h('div.set-name', t('settings.cache')), h('div.muted', cacheHint), h('code.mono.set-path', info.cache_dir)),
+        here() ? btn(t('common.open'), () => openFolder('cache'), { icon: 'folder' }) : null,
+        editable() ? btn(t('settings.move'), () => moveCache(), { disabled: !!(task && task.state === 'running') }) : null,
+        editable() && info.cache_custom ? btn(t('settings.default'), () => moveCache(true), { title: t('settings.cacheDefaultHint'), disabled: !!(task && task.state === 'running') }) : null),
+      h('div.set-row', h('div.grow', h('div.set-name', t('settings.title')), h('div.muted', t('settings.configHint')), h('code.mono.set-path', info.config_file)),
+        here() ? btn(t('common.open'), () => openFolder('config'), { icon: 'folder' }) : null))];
   }
   async function openFolder(what) {
-    try { await post('/api/open-folder', { what }); } catch (e) { toastError('Could not open the folder', e); }
+    try { await post('/api/open-folder', { what }); } catch (e) { toastError(t('settings.couldNotOpenFolder'), e); }
   }
   async function moveCache(toDefault = false) {
     let path = '';
     if (!toDefault) {
       if (here()) {
-        try { path = (await post('/api/pick-folder', { title: 'Choose where to keep the index and covers' })).path; } catch (e) { path = null; }
+        try { path = (await post('/api/pick-folder', { title: t('settings.chooseCacheFolder') })).path; } catch (e) { path = null; }
       }
-      if (path === null || (!here() && !path)) path = await promptDialog({ title: 'Move the index and covers', label: 'Folder', mono: true, confirm: 'Next' });
+      if (path === null || (!here() && !path)) path = await promptDialog({ title: t('settings.moveCacheTitle'), label: t('settings.folder'), mono: true, confirm: t('settings.next') });
       if (!path) return;
     }
     const req = toDefault ? { default: true } : { path };
     try {
       const plan = await post('/api/settings/cache-dir', { ...req, check: true });
-      const ok = await confirmDialog({ title: 'Move the index and covers?', message: `${plural(plan.files, 'file')} (${bytes(plan.bytes)}) move to ${plan.to}.`,
-        detail: 'Indexing waits until the move is done. Your media is not touched.', confirm: 'Move' });
+      const ok = await confirmDialog({ title: t('settings.moveCacheConfirm'), message: t('settings.moveCacheMessage', { count: plan.files, size: bytes(plan.bytes), folder: plan.to }),
+        detail: t('settings.moveCacheDetail'), confirm: t('settings.moveConfirm') });
       if (!ok) return;
       const j = await post('/api/settings/cache-dir', req);
       moving = j.task.id;
       pokeWatcher();
       if (j.task.state !== 'running') finishMove(j.task); else render();
-    } catch (e) { toastError('Could not move the index and covers', e); }
+    } catch (e) { toastError(t('settings.couldNotMoveCache'), e); }
   }
-  function finishMove(t) {
+  function finishMove(task) {
     moving = null;
-    if (t.state === 'done') toast('The index and covers moved', { kind: 'ok' });
-    else toastError('The move did not finish', t.line || t.state);
+    if (task.state === 'done') toast(t('settings.cacheMoved'), { kind: 'ok' });
+    else toastError(t('settings.moveFailed'), task.line || task.state);
     refresh();
   }
 
   // ---------------------------------------------------------------- cloud storage
   function cloud() {
     const n = state.connections.length;
-    return [h('div.section-title', 'Cloud storage'), h('div.card-box.set-card',
-      row('Connections', n ? `${plural(n, 'store')} connected: ${state.connections.map(c => c.name).join(', ')}.` : 'Amazon S3, Cloudflare R2, Backblaze B2, MinIO, RustFS and anything else that speaks S3: browse and manage buckets, or make a bucket folder a library.',
-        h('a.btn.small', { href: '#/connections' }, icon(n ? 'plug' : 'plus', 'sm'), n ? 'Manage' : 'Connect a store')))];
+    return [h('div.section-title', t('settings.cloud')), h('div.card-box.set-card',
+      row(t('settings.connections'), n ? t('settings.connectedStores', { count: n, names: state.connections.map(c => c.name).join(', ') }) : t('settings.cloudHint'),
+        h('a.btn.small', { href: '#/connections' }, icon(n ? 'plug' : 'plus', 'sm'), n ? t('settings.manage') : t('settings.connectStore'))))];
   }
 
   // ---------------------------------------------------------------- about
   function about() {
-    return [h('div.section-title#about', 'About'), h('div.card-box.set-card',
-      row('Media Library', `${info.mode === 'desktop' ? 'Desktop app' : 'Server'} · ${info.platform} · ${info.runtime}`, h('span.mono', info.version)),
+    return [h('div.section-title#about', t('settings.about')), h('div.card-box.set-card',
+      row('Media Library', info.mode === 'desktop' ? t('settings.aboutDesktop', { platform: info.platform, runtime: info.runtime }) : t('settings.aboutServer', { platform: info.platform, runtime: info.runtime }), h('span.mono', info.version)),
       updates())];
   }
 
   function render() {
-    if (!info) { fill(body, appearance(), h('div.banner.error', 'Could not read the settings.')); return; }
+    if (!info) { fill(body, appearance(), h('div.banner.error', t('settings.couldNotRead'))); return; }
     fill(body,
-      editable() ? null : h('div.banner', icon('info', 'sm'), 'Settings can be changed on the computer running medialib, or after signing in.'),
+      editable() ? null : h('div.banner', icon('info', 'sm'), t('settings.readOnly')),
       appearance(), indexing(), playersCard(), cloud(), tools(), files(), about());
   }
 
   offs.push(on('activity', () => {
-    const t = moving && state.tasks.find(x => x.id === moving);
-    if (!t) return;
-    if (t.state !== 'running') finishMove(t); else render();
+    const task = moving && state.tasks.find(x => x.id === moving);
+    if (!task) return;
+    if (task.state !== 'running') finishMove(task); else render();
   }));
   // #/settings/about (the sidebar's update button): the version and its updates.
   const show = p => { if (p[0] === 'about') requestAnimationFrame(() => body.querySelector('#about')?.scrollIntoView({ block: 'start' })); };

@@ -2,7 +2,8 @@
 import { h, fill, $, Scope, debounce } from '../lib/dom.js';
 import { icon, kindIcon } from '../lib/icons.js';
 import { get, objectUrl, post, s3Path, del } from '../lib/api.js';
-import { bytes, collator, kindOf, leaf, num, plural, when } from '../lib/fmt.js';
+import { bytes, collator, kindOf, leaf, num, when } from '../lib/fmt.js';
+import { t } from '../lib/i18n.js';
 import { navigate } from '../lib/router.js';
 import { loadConnections, loadLibraries, on, pokeWatcher, state } from '../lib/state.js';
 import { store } from '../lib/store.js';
@@ -25,25 +26,25 @@ export async function mount(root, parts) {
 
   // ---------------------------------------------------------------- skeleton
   const side = h('aside.st-side');
-  const crumbs = h('nav.st-crumbs', { 'aria-label': 'Location' });
-  const filterIn = h('input.input', { type: 'search', placeholder: 'Filter files', title: 'Type to filter this folder. Press Enter to search subfolders too.', 'aria-label': 'Filter or search', autocomplete: 'off' });
+  const crumbs = h('nav.st-crumbs', { 'aria-label': t('storage.location') });
+  const filterIn = h('input.input', { type: 'search', placeholder: t('storage.filterFiles'), title: t('storage.filterHint'), 'aria-label': t('storage.filterOrSearch'), autocomplete: 'off' });
   const fileInput = h('input', { type: 'file', multiple: true, hidden: true });
   const dirInput = h('input', { type: 'file', webkitdirectory: true, hidden: true });
   const uploadBtn = h('button.btn.primary', { type: 'button', onclick: e => showMenu({ anchor: e.currentTarget, items: [
-    { label: 'Upload files…', icon: 'upload', onClick: () => fileInput.click() },
-    { label: 'Upload a folder…', icon: 'folder', onClick: () => dirInput.click() },
-  ] }) }, icon('upload', 'sm'), h('span.lbl', 'Upload'));
-  const newFolderBtn = h('button.btn#newfolder', { type: 'button', onclick: () => newFolder() }, icon('folder-plus', 'sm'), h('span.lbl', 'New folder'));
-  const refreshBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Refresh', title: 'Refresh', onclick: () => reload() }, icon('refresh'));
+    { label: t('storage.uploadFilesMenu'), icon: 'upload', onClick: () => fileInput.click() },
+    { label: t('storage.uploadFolderMenu'), icon: 'folder', onClick: () => dirInput.click() },
+  ] }) }, icon('upload', 'sm'), h('span.lbl', t('storage.upload')));
+  const newFolderBtn = h('button.btn#newfolder', { type: 'button', onclick: () => newFolder() }, icon('folder-plus', 'sm'), h('span.lbl', t('storage.newFolder')));
+  const refreshBtn = h('button.icon-btn', { type: 'button', 'aria-label': t('storage.refresh'), title: t('storage.refresh'), onclick: () => reload() }, icon('refresh'));
   const layoutBtn = h('button.icon-btn', { type: 'button', onclick: () => { S.layout = S.layout === 'list' ? 'grid' : 'list'; store.set('stLayout', S.layout); paintAll(); } });
-  const detailBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Details', title: 'Details', onclick: () => { S.drawer = !S.drawer; store.set('stDrawer', S.drawer ? '1' : '0'); paintAll(); } }, icon('info'));
-  const moreBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'More', onclick: e => showMenu({ anchor: e.currentTarget, align: 'right', items: moreItems() }) }, icon('more'));
-  const sideToggle = h('button.icon-btn.side-toggle', { type: 'button', 'aria-label': 'Buckets', onclick: () => sideOpen(true) }, icon('menu'));
+  const detailBtn = h('button.icon-btn', { type: 'button', 'aria-label': t('storage.details'), title: t('storage.details'), onclick: () => { S.drawer = !S.drawer; store.set('stDrawer', S.drawer ? '1' : '0'); paintAll(); } }, icon('info'));
+  const moreBtn = h('button.icon-btn', { type: 'button', 'aria-label': t('common.more'), onclick: e => showMenu({ anchor: e.currentTarget, align: 'right', items: moreItems() }) }, icon('more'));
+  const sideToggle = h('button.icon-btn.side-toggle', { type: 'button', 'aria-label': t('storage.buckets'), onclick: () => sideOpen(true) }, icon('menu'));
   const bar = h('header.st-bar', sideToggle, crumbs, h('div.search.st-filter', icon('search', 'sm'), filterIn), newFolderBtn, uploadBtn, refreshBtn, layoutBtn, detailBtn, moreBtn);
   const selbar = h('div.st-selbar', { hidden: true });
-  const body = h('div.st-scroll', { tabindex: 0, 'aria-label': 'Objects' });
+  const body = h('div.st-scroll', { tabindex: 0, 'aria-label': t('storage.objects') });
   const detail = h('aside.st-detail');
-  const drop = h('div.st-drop', { hidden: true }, h('div', icon('upload', 'lg'), h('strong', 'Drop to upload'), h('span.muted.dest')));
+  const drop = h('div.st-drop', { hidden: true }, h('div', icon('upload', 'lg'), h('strong', t('storage.dropToUpload')), h('span.muted.dest')));
   const scrim = h('div.scrim', { hidden: true, onclick: () => sideOpen(false) });
   const main = h('section.st-main', bar, selbar, body, drop);
   root.append(h('div.st-view', side, main, detail, scrim, fileInput, dirInput));
@@ -132,13 +133,13 @@ export async function mount(root, parts) {
     paintBody();
     paintSel();
     paintDetail();
-    document.title = (S.bucket ? `${S.bucket} · ` : '') + 'Storage · Media Library';
+    document.title = S.bucket ? t('storage.pageTitleBucket', { bucket: S.bucket }) : t('storage.pageTitle');
   }
 
   function paintSide() {
     fill(side,
-      h('div.side-head', h('span', 'Storage'), h('button.icon-btn.small', { type: 'button', 'aria-label': 'Refresh buckets', title: 'Refresh buckets', onclick: () => { for (const c of state.connections) ensureBuckets(c.id, true); } }, icon('refresh', 'sm')),
-        h('button.icon-btn.small.side-close', { type: 'button', 'aria-label': 'Close', onclick: () => sideOpen(false) }, icon('x', 'sm'))),
+      h('div.side-head', h('span', t('storage.title')), h('button.icon-btn.small', { type: 'button', 'aria-label': t('storage.refreshBuckets'), title: t('storage.refreshBuckets'), onclick: () => { for (const c of state.connections) ensureBuckets(c.id, true); } }, icon('refresh', 'sm')),
+        h('button.icon-btn.small.side-close', { type: 'button', 'aria-label': t('common.close'), onclick: () => sideOpen(false) }, icon('x', 'sm'))),
       state.connections.length ? state.connections.map(c => {
         const open = c.id === S.conn;
         const st = S.bucketState.get(c.id);
@@ -149,10 +150,10 @@ export async function mount(root, parts) {
             st === 'loading' ? h('div.side-note', h('div.spinner')) : null,
             (S.buckets.get(c.id) || []).map(b => h('button.side-bucket', { type: 'button', 'aria-current': b.name === S.bucket ? 'true' : null, onclick: () => navigate('storage', c.id, b.name) }, icon('bucket', 'sm'), h('span.grow', b.name))),
             st && !['ok', 'loading', 'limited'].includes(st) ? h('div.side-note.bad', st) : null,
-            st === 'ok' && !(S.buckets.get(c.id) || []).length ? h('div.side-note', 'No buckets yet.') : null,
-            h('button.side-bucket.add', { type: 'button', onclick: () => newBucket(c.id) }, icon('plus', 'sm'), 'New bucket')) : null);
-      }) : h('div.side-note', 'No connections yet.'),
-      h('div.side-foot', h('button.btn.small', { type: 'button', onclick: () => navigate('connections') }, icon('plug', 'sm'), 'Connections')));
+            st === 'ok' && !(S.buckets.get(c.id) || []).length ? h('div.side-note', t('storage.noBucketsShort')) : null,
+            h('button.side-bucket.add', { type: 'button', onclick: () => newBucket(c.id) }, icon('plus', 'sm'), t('storage.newBucket'))) : null);
+      }) : h('div.side-note', t('storage.noConnections')),
+      h('div.side-foot', h('button.btn.small', { type: 'button', onclick: () => navigate('connections') }, icon('plug', 'sm'), t('storage.connections'))));
   }
 
   // Breadcrumbs: every level is a link. When they do not fit, the earliest levels fold into a "…" menu.
@@ -170,7 +171,7 @@ export async function mount(root, parts) {
     $('.st-filter', bar).hidden = !inBucket;
     moreBtn.hidden = !S.conn;
     fill(layoutBtn, icon(S.layout === 'list' ? 'grid' : 'list'));
-    layoutBtn.setAttribute('aria-label', S.layout === 'list' ? 'Grid view' : 'List view');
+    layoutBtn.setAttribute('aria-label', S.layout === 'list' ? t('storage.gridView') : t('storage.listView'));
     layoutBtn.title = layoutBtn.getAttribute('aria-label');
     detailBtn.classList.toggle('on', S.drawer);
     $('.dest', drop).textContent = inBucket ? `${S.bucket}/${S.prefix}` : '';
@@ -180,8 +181,8 @@ export async function mount(root, parts) {
     const last = crumbItems.length - 1;
     const piece = (it, i) => h('button.crumb', { type: 'button', 'aria-current': i === last ? 'page' : null, onclick: it.go }, it.label);
     const hidden = crumbItems.slice(0, folded);
-    fill(crumbs, S.conn ? null : h('span.crumb', 'Storage'),
-      hidden.length ? [h('button.crumb', { type: 'button', 'aria-label': 'Earlier levels', onclick: e => showMenu({ anchor: e.currentTarget, items: hidden.map(it => ({ label: it.label, icon: 'folder', onClick: it.go })) }) }, '…'), h('span.sep', '›')] : null,
+    fill(crumbs, S.conn ? null : h('span.crumb', t('storage.title')),
+      hidden.length ? [h('button.crumb', { type: 'button', 'aria-label': t('storage.earlierLevels'), onclick: e => showMenu({ anchor: e.currentTarget, items: hidden.map(it => ({ label: it.label, icon: 'folder', onClick: it.go })) }) }, '…'), h('span.sep', '›')] : null,
       crumbItems.slice(folded).map((it, i) => [i ? h('span.sep', '›') : null, piece(it, folded + i)]));
   }
   function fitCrumbs() {
@@ -211,20 +212,20 @@ export async function mount(root, parts) {
   function paintBody() {
     rowEls = new Map();
     if (!S.conn) return fill(body, connectionsLanding());
-    if (!state.connections.some(c => c.id === S.conn)) return fill(body, emptyState('alert', 'Unknown connection', 'That connection no longer exists.'));
+    if (!state.connections.some(c => c.id === S.conn)) return fill(body, emptyState('alert', t('storage.unknownConnection'), t('storage.unknownConnectionText')));
     if (!S.bucket) return fill(body, bucketsLanding());
-    if (S.error) return fill(body, h('div.empty-state', icon('alert'), h('h3', 'Could not list this location'), h('p', S.error.message),
-      h('div', { style: { display: 'flex', gap: '8px' } }, h('button.btn', { type: 'button', onclick: () => reload() }, icon('refresh', 'sm'), 'Try again'), h('button.btn', { type: 'button', onclick: () => navigate('connections') }, 'Check connection'))));
+    if (S.error) return fill(body, h('div.empty-state', icon('alert'), h('h3', t('storage.couldNotList')), h('p', S.error.message),
+      h('div', { style: { display: 'flex', gap: '8px' } }, h('button.btn', { type: 'button', onclick: () => reload() }, icon('refresh', 'sm'), t('common.retry')), h('button.btn', { type: 'button', onclick: () => navigate('connections') }, t('storage.checkConnection')))));
     shownRows = visibleRows();
     if (!S.loaded) return fill(body, h('div.empty-state', h('div.spinner')));
-    const searching = S.search ? h('div.banner.st-search', h('div.grow', `${plural(S.search.rows.length, 'match', 'matches')} for “${S.search.q}” in ${S.bucket}/${S.prefix}` + (S.search.truncated ? ` · stopped after ${num(S.search.scanned)} objects` : '')),
-      h('button.btn.small', { type: 'button', onclick: () => { S.search = null; S.filter = ''; filterIn.value = ''; paintAll(); } }, 'Clear search')) : null;
+    const searching = S.search ? h('div.banner.st-search', h('div.grow', S.search.truncated ? t('storage.searchResultsStopped', { count: S.search.rows.length, q: S.search.q, path: `${S.bucket}/${S.prefix}`, scanned: S.search.scanned }) : t('storage.searchResults', { count: S.search.rows.length, q: S.search.q, path: `${S.bucket}/${S.prefix}` })),
+      h('button.btn.small', { type: 'button', onclick: () => { S.search = null; S.filter = ''; filterIn.value = ''; paintAll(); } }, t('storage.clearSearch'))) : null;
     if (!shownRows.length) {
-      return fill(body, searching, S.filter || S.search ? emptyState('search', 'No matches', 'Nothing here has that name. Press Enter in the filter box to search subfolders too.')
-        : h('div.empty-state', icon('folder'), h('h3', 'This folder is empty'), h('p', 'Drop files anywhere here, or use Upload.'),
-          h('button.btn.primary', { type: 'button', onclick: () => fileInput.click() }, icon('upload', 'sm'), 'Upload files')));
+      return fill(body, searching, S.filter || S.search ? emptyState('search', t('storage.noMatches'), t('storage.noMatchesText'))
+        : h('div.empty-state', icon('folder'), h('h3', t('storage.folderEmpty')), h('p', t('storage.folderEmptyText')),
+          h('button.btn.primary', { type: 'button', onclick: () => fileInput.click() }, icon('upload', 'sm'), t('storage.uploadFiles'))));
     }
-    const more = S.token && !S.search ? h('div.st-more', h('button.btn', { type: 'button', disabled: S.loading, onclick: () => loadMore() }, S.loading ? 'Loading…' : `Load more (${num(S.rows.length)} loaded)`)) : null;
+    const more = S.token && !S.search ? h('div.st-more', h('button.btn', { type: 'button', disabled: S.loading, onclick: () => loadMore() }, S.loading ? t('common.loading') : t('storage.loadMore', { count: S.rows.length }))) : null;
     fill(body, searching, S.layout === 'list' ? listView(shownRows) : gridView(shownRows), more);
     if (more) { moreObserver.disconnect(); moreObserver.observe(more); }
   }
@@ -236,11 +237,11 @@ export async function mount(root, parts) {
 
   function connectionsLanding() {
     if (!state.connections.length) {
-      return h('div.empty-state', icon('storage'), h('h3', 'Connect to an object store'),
-        h('p', 'Add the endpoint and keys of RustFS, MinIO, Amazon S3, Cloudflare R2 or any S3-compatible service to browse and manage its buckets here.'),
-        h('button.btn.primary', { type: 'button', onclick: async () => { const c = await editConnection(); if (c) { await loadConnections(); navigate('storage', c.id); } } }, icon('plus', 'sm'), 'Add connection'));
+      return h('div.empty-state', icon('storage'), h('h3', t('storage.connectStore')),
+        h('p', t('storage.connectStoreText')),
+        h('button.btn.primary', { type: 'button', onclick: async () => { const c = await editConnection(); if (c) { await loadConnections(); navigate('storage', c.id); } } }, icon('plus', 'sm'), t('storage.addConnection')));
     }
-    return h('div.empty-state', icon('storage'), h('h3', 'Choose a connection'));
+    return h('div.empty-state', icon('storage'), h('h3', t('storage.chooseConnection')));
   }
 
   function bucketsLanding() {
@@ -248,14 +249,14 @@ export async function mount(root, parts) {
     if (!list && st !== 'loading' && !st) return h('div.empty-state', h('div.spinner'));
     if (st === 'loading' && !list) return h('div.empty-state', h('div.spinner'));
     if (st && !['ok', 'limited', 'loading'].includes(st)) {
-      return h('div.empty-state', icon('alert'), h('h3', `Could not reach ${connName(S.conn)}`), h('p', st),
-        h('div', { style: { display: 'flex', gap: '8px' } }, h('button.btn', { type: 'button', onclick: () => ensureBuckets(S.conn, true).then(paintBody) }, icon('refresh', 'sm'), 'Try again'),
-          h('button.btn', { type: 'button', onclick: () => navigate('connections') }, 'Edit connection')));
+      return h('div.empty-state', icon('alert'), h('h3', t('storage.couldNotReach', { name: connName(S.conn) })), h('p', st),
+        h('div', { style: { display: 'flex', gap: '8px' } }, h('button.btn', { type: 'button', onclick: () => ensureBuckets(S.conn, true).then(paintBody) }, icon('refresh', 'sm'), t('common.retry')),
+          h('button.btn', { type: 'button', onclick: () => navigate('connections') }, t('storage.editConnection'))));
     }
     return h('div.st-buckets',
-      h('div.st-buckets-head', h('h2', 'Buckets'), h('button.btn', { type: 'button', onclick: () => newBucket(S.conn) }, icon('plus', 'sm'), 'New bucket')),
-      st === 'limited' ? h('p.muted', 'This key cannot list all buckets, so only the default bucket of the connection is shown.') : null,
-      (list || []).length ? h('div.bucket-grid', list.map(b => h('button.bucket-card', { type: 'button', onclick: () => navigate('storage', S.conn, b.name) }, icon('bucket', 'lg'), h('div.bucket-name', b.name), h('div.muted', b.created ? 'Created ' + b.created.slice(0, 10) : '')))) : emptyState('bucket', 'No buckets yet', 'Create one to start storing objects.'));
+      h('div.st-buckets-head', h('h2', t('storage.buckets')), h('button.btn', { type: 'button', onclick: () => newBucket(S.conn) }, icon('plus', 'sm'), t('storage.newBucket'))),
+      st === 'limited' ? h('p.muted', t('storage.limitedKey')) : null,
+      (list || []).length ? h('div.bucket-grid', list.map(b => h('button.bucket-card', { type: 'button', onclick: () => navigate('storage', S.conn, b.name) }, icon('bucket', 'lg'), h('div.bucket-name', b.name), h('div.muted', b.created ? t('storage.created', { date: b.created.slice(0, 10) }) : '')))) : emptyState('bucket', t('storage.noBuckets'), t('storage.noBucketsText')));
   }
 
   // ---- list view
@@ -264,11 +265,11 @@ export async function mount(root, parts) {
       onclick: () => { S.sort = { col, dir: S.sort.col === col ? -S.sort.dir : (col === 'mtime' ? -1 : 1) }; store.setJson('stSort', S.sort); paintBody(); } },
       label, S.sort.col === col ? h('span.arrow', S.sort.dir === 1 ? '↑' : '↓') : null);
     const allOn = rows.length && rows.every(r => S.sel.has(r.key));
-    const head = h('tr', h('th.chk', h('input', { type: 'checkbox', 'aria-label': 'Select all', checked: allOn, onchange: e => { if (e.target.checked) rows.forEach(r => S.sel.add(r.key)); else S.sel.clear(); paintSelection(); } })),
-      th('name', 'Name'), th('size', 'Size', 'num'), th('mtime', 'Modified', 'mtime'));
+    const head = h('tr', h('th.chk', h('input', { type: 'checkbox', 'aria-label': t('storage.selectAll'), checked: allOn, onchange: e => { if (e.target.checked) rows.forEach(r => S.sel.add(r.key)); else S.sel.clear(); paintSelection(); } })),
+      th('name', t('storage.name')), th('size', t('storage.size'), 'num'), th('mtime', t('storage.modified'), 'mtime'));
     const tbody = h('tbody', rows.map(r => {
       const tr = h('tr', { dataset: { key: r.key }, class: S.sel.has(r.key) ? 'selected' : '' },
-        h('td.chk', h('input', { type: 'checkbox', tabindex: -1, 'aria-label': 'Select ' + r.name, checked: S.sel.has(r.key) })),
+        h('td.chk', h('input', { type: 'checkbox', tabindex: -1, 'aria-label': t('storage.selectItem', { name: r.name }), checked: S.sel.has(r.key) })),
         h('td.nm', h('div.nm-in', icon(r.type === 'folder' ? 'folder' : kindIcon(r.kind), 'sm'), h('span.nm-text', { title: r.key }, r.name))),
         h('td.num', r.size == null ? '–' : bytes(r.size)), h('td.mtime', r.mtime ? when(r.mtime) : ''));
       rowEls.set(r.key, tr);
@@ -283,7 +284,7 @@ export async function mount(root, parts) {
       const imgOk = r.type === 'file' && r.kind === 'image' && r.size <= 5 * 1024 * 1024;
       const tile = h('div.tile', { dataset: { key: r.key }, class: S.sel.has(r.key) ? 'selected' : '' },
         h('div.tile-art', imgOk ? h('img', { src: objectUrl(S.conn, S.bucket, r.key), alt: '', loading: 'lazy' }) : icon(r.type === 'folder' ? 'folder' : kindIcon(r.kind), 'lg')),
-        h('div.tile-name', { title: r.key }, r.name), h('div.tile-sub', r.size == null ? 'Folder' : bytes(r.size)));
+        h('div.tile-name', { title: r.key }, r.name), h('div.tile-sub', r.size == null ? t('storage.folder') : bytes(r.size)));
       rowEls.set(r.key, tile);
       return tile;
     }));
@@ -307,8 +308,8 @@ export async function mount(root, parts) {
     selbar.hidden = !rows.length;
     if (!rows.length) return;
     const files = rows.filter(r => r.type === 'file'), size = files.reduce((a, r) => a + r.size, 0);
-    fill(selbar, h('span.sel-count', `${plural(rows.length, 'item')} selected${files.length ? ' · ' + bytes(size) : ''}`),
-      h('div.sel-actions', actionButtons(rows)), h('button.btn.ghost.small', { type: 'button', onclick: () => { S.sel.clear(); paintSelection(); } }, 'Clear'));
+    fill(selbar, h('span.sel-count', files.length ? t('storage.selectedWithSize', { count: rows.length, size: bytes(size) }) : t('storage.selected', { count: rows.length })),
+      h('div.sel-actions', actionButtons(rows)), h('button.btn.ghost.small', { type: 'button', onclick: () => { S.sel.clear(); paintSelection(); } }, t('storage.clear')));
   }
 
   function actionButtons(rows) {
@@ -316,12 +317,12 @@ export async function mount(root, parts) {
     const files = rows.filter(r => r.type === 'file');
     const b = (label, ic, fn, cls = '') => h('button.btn.small', { type: 'button', class: cls, onclick: fn }, icon(ic, 'sm'), h('span.lbl', label));
     return [
-      files.length ? b('Download', 'download', () => download(files)) : null,
-      one && one.type === 'file' ? h('button.btn.small', { type: 'button', onclick: e => showMenu({ anchor: e.currentTarget, items: linkItems(S.conn, S.bucket, one.key) }) }, icon('link', 'sm'), h('span.lbl', 'Copy link')) : null,
-      files.some(r => MEDIA_KINDS.has(r.kind)) ? b('Play', 'play', () => playInPlayer(files.filter(r => MEDIA_KINDS.has(r.kind)))) : null,
-      one ? b('Rename', 'edit', () => rename(one)) : null,
-      b('Move', 'move', () => transfer(rows, true)), b('Copy', 'copy', () => transfer(rows, false)),
-      b('Delete', 'trash', () => remove(rows), 'danger'),
+      files.length ? b(t('storage.download'), 'download', () => download(files)) : null,
+      one && one.type === 'file' ? h('button.btn.small', { type: 'button', onclick: e => showMenu({ anchor: e.currentTarget, items: linkItems(S.conn, S.bucket, one.key) }) }, icon('link', 'sm'), h('span.lbl', t('storage.copyLink'))) : null,
+      files.some(r => MEDIA_KINDS.has(r.kind)) ? b(t('common.play'), 'play', () => playInPlayer(files.filter(r => MEDIA_KINDS.has(r.kind)))) : null,
+      one ? b(t('common.rename'), 'edit', () => rename(one)) : null,
+      b(t('storage.move'), 'move', () => transfer(rows, true)), b(t('common.copy'), 'copy', () => transfer(rows, false)),
+      b(t('common.delete'), 'trash', () => remove(rows), 'danger'),
     ];
   }
 
@@ -382,29 +383,29 @@ export async function mount(root, parts) {
   function menuFor(rows) {
     const one = rows.length === 1 ? rows[0] : null, files = rows.filter(r => r.type === 'file'), media = files.filter(r => MEDIA_KINDS.has(r.kind));
     return [
-      one && one.type === 'folder' ? { label: 'Open', icon: 'folder', onClick: () => here(one.key) } : null,
-      one && one.type === 'file' ? { label: 'Details & preview', icon: 'info', onClick: () => openRow(one) } : null,
-      S.search && one ? { label: 'Show in folder', icon: 'folder', onClick: () => { const p = one.key.slice(0, one.key.lastIndexOf('/') + 1); S.search = null; here(p); } } : null,
-      files.length ? { label: files.length > 1 ? `Download ${files.length} files` : 'Download', icon: 'download', onClick: () => download(files) } : null,
-      media.length ? { label: 'Play in player', icon: 'play', onClick: () => playInPlayer(media) } : null,
+      one && one.type === 'folder' ? { label: t('common.open'), icon: 'folder', onClick: () => here(one.key) } : null,
+      one && one.type === 'file' ? { label: t('storage.detailsPreview'), icon: 'info', onClick: () => openRow(one) } : null,
+      S.search && one ? { label: t('storage.showInFolder'), icon: 'folder', onClick: () => { const p = one.key.slice(0, one.key.lastIndexOf('/') + 1); S.search = null; here(p); } } : null,
+      files.length ? { label: files.length > 1 ? t('storage.downloadFiles', { count: files.length }) : t('storage.download'), icon: 'download', onClick: () => download(files) } : null,
+      media.length ? { label: t('storage.playInPlayer'), icon: 'play', onClick: () => playInPlayer(media) } : null,
       { sep: true },
-      one && one.type === 'file' ? { head: 'Copy link' } : null,
+      one && one.type === 'file' ? { head: t('storage.copyLink') } : null,
       ...(one && one.type === 'file' ? linkItems(S.conn, S.bucket, one.key).slice(1) : []),
       { sep: true },
-      one ? { label: 'Rename', icon: 'edit', kb: 'F2', onClick: () => rename(one) } : null,
-      { label: 'Move to…', icon: 'move', onClick: () => transfer(rows, true) },
-      { label: 'Copy to…', icon: 'copy', onClick: () => transfer(rows, false) },
-      one && one.type === 'file' ? { label: 'Properties…', icon: 'sliders', onClick: () => properties(one) } : null,
-      one && one.type === 'folder' ? { label: 'Calculate size', icon: 'layers', onClick: () => measure(one.key) } : null,
-      one && one.type === 'folder' ? { label: 'Use as a library…', icon: 'library', onClick: () => makeLibrary(one.key) } : null,
+      one ? { label: t('common.rename'), icon: 'edit', kb: 'F2', onClick: () => rename(one) } : null,
+      { label: t('storage.moveTo'), icon: 'move', onClick: () => transfer(rows, true) },
+      { label: t('storage.copyTo'), icon: 'copy', onClick: () => transfer(rows, false) },
+      one && one.type === 'file' ? { label: t('storage.propertiesMenu'), icon: 'sliders', onClick: () => properties(one) } : null,
+      one && one.type === 'folder' ? { label: t('storage.calculateSize'), icon: 'layers', onClick: () => measure(one.key) } : null,
+      one && one.type === 'folder' ? { label: t('storage.useAsLibraryMenu'), icon: 'library', onClick: () => makeLibrary(one.key) } : null,
       { sep: true },
-      { label: 'Delete', icon: 'trash', kb: 'Del', danger: true, onClick: () => remove(rows) },
+      { label: t('common.delete'), icon: 'trash', kb: 'Del', danger: true, onClick: () => remove(rows) },
     ].filter(Boolean);
   }
 
   // ---------------------------------------------------------------- actions
   async function download(files) {
-    if (files.length > 1 && !await confirmDialog({ title: `Download ${files.length} files?`, message: 'Your browser may ask to allow multiple downloads.', confirm: 'Download' })) return;
+    if (files.length > 1 && !await confirmDialog({ title: t('storage.downloadFilesConfirm', { count: files.length }), message: t('storage.downloadFilesMessage'), confirm: t('storage.download') })) return;
     files.forEach((f, i) => setTimeout(() => {
       const a = h('a', { href: objectUrl(S.conn, S.bucket, f.key, true), download: f.name.split('/').pop() });
       document.body.append(a); a.click(); a.remove();
@@ -414,82 +415,82 @@ export async function mount(root, parts) {
   async function playInPlayer(rows) {
     try {
       const j = await post(s3Path(S.conn, S.bucket, 'play'), { keys: rows.map(r => r.key), player: store.get('player', state.defaultPlayer) });
-      toast(j.count > 1 ? `Opening ${j.count} items in ${j.player}` : `Opening in ${j.player}`, { kind: 'ok' });
+      toast(j.count > 1 ? t('storage.openingItemsIn', { count: j.count, player: j.player }) : t('storage.openingIn', { player: j.player }), { kind: 'ok' });
     } catch (e) {
       if (e.status === 403 && rows.length === 1) { // a browser on another computer: play in the browser instead
         window.open(objectUrl(S.conn, S.bucket, rows[0].key), '_blank');
         return;
       }
-      toastError('Could not start the player', e);
+      toastError(t('storage.couldNotStartPlayer'), e);
     }
   }
 
   async function newFolder() {
-    const name = await promptDialog({ title: 'New folder', label: 'Folder name', confirm: 'Create', hint: 'S3 has no real folders: this creates an empty marker so the folder shows up before it has files.',
-      validate: v => !v ? 'Enter a name.' : v.includes('//') ? 'Use single slashes.' : '' });
+    const name = await promptDialog({ title: t('storage.newFolder'), label: t('storage.folderName'), confirm: t('storage.create'), hint: t('storage.newFolderHint'),
+      validate: v => !v ? t('storage.enterName') : v.includes('//') ? t('storage.singleSlashes') : '' });
     if (!name) return;
-    try { await post(s3Path(S.conn, S.bucket, 'folder'), { prefix: S.prefix + name }); toast('Folder created', { kind: 'ok' }); reload(); } catch (e) { toastError('Could not create the folder', e); }
+    try { await post(s3Path(S.conn, S.bucket, 'folder'), { prefix: S.prefix + name }); toast(t('storage.folderCreated'), { kind: 'ok' }); reload(); } catch (e) { toastError(t('storage.couldNotCreateFolder'), e); }
   }
 
   async function newBucket(conn) {
-    const name = await promptDialog({ title: 'New bucket', label: 'Bucket name', confirm: 'Create', mono: true, hint: '3 to 63 characters: lowercase letters, digits, dots and hyphens.',
-      validate: v => /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(v) ? '' : 'Use 3 to 63 lowercase letters, digits, dots or hyphens.' });
+    const name = await promptDialog({ title: t('storage.newBucket'), label: t('storage.bucketName'), confirm: t('storage.create'), mono: true, hint: t('storage.bucketNameHint'),
+      validate: v => /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(v) ? '' : t('storage.bucketNameInvalid') });
     if (!name) return;
-    try { await post(`/api/s3/${encodeURIComponent(conn)}/buckets`, { name }); await ensureBuckets(conn, true); navigate('storage', conn, name); toast(`Bucket “${name}” created`, { kind: 'ok' }); } catch (e) { toastError('Could not create the bucket', e); }
+    try { await post(`/api/s3/${encodeURIComponent(conn)}/buckets`, { name }); await ensureBuckets(conn, true); navigate('storage', conn, name); toast(t('storage.bucketCreated', { name }), { kind: 'ok' }); } catch (e) { toastError(t('storage.couldNotCreateBucket'), e); }
   }
 
   async function deleteBucket() {
-    if (!await confirmDialog({ title: `Delete bucket “${S.bucket}”?`, message: 'The bucket must be empty. This cannot be undone.', confirm: 'Delete bucket', danger: true })) return;
-    try { await del(`/api/s3/${encodeURIComponent(S.conn)}/buckets/${encodeURIComponent(S.bucket)}`); const c = S.conn; await ensureBuckets(c, true); navigate('storage', c); toast('Bucket deleted', { kind: 'ok' }); } catch (e) { toastError('Could not delete the bucket', e); }
+    if (!await confirmDialog({ title: t('storage.deleteBucketTitle', { name: S.bucket }), message: t('storage.deleteBucketMessage'), confirm: t('storage.deleteBucket'), danger: true })) return;
+    try { await del(`/api/s3/${encodeURIComponent(S.conn)}/buckets/${encodeURIComponent(S.bucket)}`); const c = S.conn; await ensureBuckets(c, true); navigate('storage', c); toast(t('storage.bucketDeleted'), { kind: 'ok' }); } catch (e) { toastError(t('storage.couldNotDeleteBucket'), e); }
   }
 
   async function rename(r) {
-    const name = await promptDialog({ title: `Rename ${r.type === 'folder' ? 'folder' : 'file'}`, label: 'New name', value: r.name.split('/').pop(), confirm: 'Rename',
-      validate: v => !v ? 'Enter a name.' : v.includes('/') ? 'A name cannot contain “/”. Use Move to change folders.' : '' });
+    const name = await promptDialog({ title: r.type === 'folder' ? t('storage.renameFolder') : t('storage.renameFile'), label: t('storage.newName'), value: r.name.split('/').pop(), confirm: t('common.rename'),
+      validate: v => !v ? t('storage.enterName') : v.includes('/') ? t('storage.nameNoSlash') : '' });
     if (!name || name === r.name.split('/').pop()) return;
     const parent = r.key.slice(0, r.key.replace(/\/$/, '').lastIndexOf('/') + 1);
     try {
       const j = await post(s3Path(S.conn, S.bucket, 'transfer'), { items: [{ from: r.key, to: parent + name + (r.type === 'folder' ? '/' : '') }], move: true, skip_existing: true });
       pokeWatcher();
-      finishTask(j.task, 'Renamed');
-    } catch (e) { toastError('Could not rename', e); }
+      finishTask(j.task, 'rename');
+    } catch (e) { toastError(t('storage.couldNotRename'), e); }
   }
 
   async function transfer(rows, move) {
     const task = await transferDialog({ conn: S.conn, bucket: S.bucket, prefix: S.prefix, rows, move });
-    if (task) finishTask(task, move ? 'Moved' : 'Copied');
+    if (task) finishTask(task, move ? 'move' : 'copy');
   }
 
   async function remove(rows) {
     const files = rows.filter(r => r.type === 'file'), folders = rows.filter(r => r.type === 'folder');
-    const what = [files.length ? plural(files.length, 'file') : '', folders.length ? plural(folders.length, 'folder') : ''].filter(Boolean).join(' and ');
+    const what = { mix: !folders.length ? 'files' : !files.length ? 'folders' : 'both', files: files.length, folders: folders.length };
     const ok = await confirmDialog({
-      title: `Delete ${what}?`, danger: true, confirm: 'Delete',
-      message: rows.length === 1 ? `“${rows[0].name}” will be deleted from ${S.bucket}.` : `${what} will be deleted from ${S.bucket}.`,
-      detail: (folders.length ? 'Folders are deleted together with everything inside them. ' : '') + 'This cannot be undone' + (' unless the bucket keeps versions.'),
+      title: t('storage.deleteTitle', what), danger: true, confirm: t('common.delete'),
+      message: rows.length === 1 ? t('storage.deleteOneMessage', { name: rows[0].name, bucket: S.bucket }) : t('storage.deleteManyMessage', { ...what, bucket: S.bucket }),
+      detail: folders.length ? t('storage.deleteDetailFolders') : t('storage.deleteDetail'),
     });
     if (!ok) return;
     try {
       const j = await post(s3Path(S.conn, S.bucket, 'delete'), { keys: files.map(r => r.key), prefixes: folders.map(r => r.key) });
       pokeWatcher();
-      finishTask(j.task, 'Deleted');
-    } catch (e) { toastError('Could not delete', e); }
+      finishTask(j.task, 'delete');
+    } catch (e) { toastError(t('storage.couldNotDelete'), e); }
   }
 
-  function finishTask(task, verb) {
-    if (task.state === 'running') { toast(`${verb.replace(/d$/, 'ing').replace(/ied$/, 'ying')}… see Activity for progress`); return; }
+  function finishTask(task, kind) {
+    if (task.state === 'running') { toast(t('storage.taskRunning', { kind })); return; }
     S.reported.add(task.id);
-    if (task.error_count) toast(`${verb} with ${plural(task.error_count, 'problem')}. See Activity.`, { kind: 'error' });
-    else toast(`${verb} ${plural(task.done, 'object')}`, { kind: 'ok' });
+    if (task.error_count) toast(t('storage.taskProblems', { kind, count: task.error_count }), { kind: 'error' });
+    else toast(t('storage.taskDone', { kind, count: task.done }), { kind: 'ok' });
     reload();
   }
-  scope.add(on('task-finished', t => {
-    if (!S.reported.has(t.id) && ['copy', 'move', 'delete'].includes(t.kind)) {
-      S.reported.add(t.id);
-      toast(t.error_count ? `${t.title}: ${plural(t.error_count, 'problem')}` : `${t.title}: done`, { kind: t.error_count ? 'error' : 'ok' });
+  scope.add(on('task-finished', task => {
+    if (!S.reported.has(task.id) && ['copy', 'move', 'delete'].includes(task.kind)) {
+      S.reported.add(task.id);
+      toast(task.error_count ? t('storage.taskFinishedProblems', { title: task.title, count: task.error_count }) : t('storage.taskFinishedDone', { title: task.title }), { kind: task.error_count ? 'error' : 'ok' });
       softReload();
     }
-    if (t.kind === 'size') paintDetail();
+    if (task.kind === 'size') paintDetail();
   }));
   scope.add(on('activity', () => { if ([...S.measure.values()].some(m => m.state === 'running')) paintDetail(); }));
   scope.add(on('uploaded', d => { if (d.conn === S.conn && d.bucket === S.bucket && d.key.startsWith(S.prefix)) softReload(); }));
@@ -498,8 +499,8 @@ export async function mount(root, parts) {
     try {
       const head = await get(s3Path(S.conn, S.bucket, 'head', { key: r.key }));
       const out = await propertiesDialog(S.conn, S.bucket, r.key, head);
-      if (out) { S.heads.set(r.key, out); toast('Properties saved', { kind: 'ok' }); paintDetail(); }
-    } catch (e) { toastError('Could not read the properties', e); }
+      if (out) { S.heads.set(r.key, out); toast(t('storage.propertiesSaved'), { kind: 'ok' }); paintDetail(); }
+    } catch (e) { toastError(t('storage.couldNotReadProperties'), e); }
   }
 
   async function measure(prefix) {
@@ -508,28 +509,28 @@ export async function mount(root, parts) {
       S.measure.set(prefix, j.task);
       pokeWatcher();
       paintDetail();
-    } catch (e) { toastError('Could not measure', e); }
+    } catch (e) { toastError(t('storage.couldNotMeasure'), e); }
   }
   const measureState = prefix => {
     const m = S.measure.get(prefix);
     if (!m) return null;
-    return state.tasks.find(t => t.id === m.id) || m;
+    return state.tasks.find(x => x.id === m.id) || m;
   };
 
   async function makeLibrary(prefix) {
     const lib = await libraryDialog({ conn: S.conn, bucket: S.bucket, prefix });
-    if (lib) { await loadLibraries(); toast('Library added. Indexing…', { kind: 'ok' }); navigate('library', lib.id); }
+    if (lib) { await loadLibraries(); toast(t('storage.libraryAdded'), { kind: 'ok' }); navigate('library', lib.id); }
   }
 
   function moreItems() {
     return [
-      S.bucket ? { label: 'Calculate size of this folder', icon: 'layers', onClick: () => { S.sel.clear(); paintSelection(); measure(S.prefix); S.drawer = true; paintAll(); } } : null,
-      S.bucket ? { label: 'Use this folder as a library…', icon: 'library', onClick: () => makeLibrary(S.prefix) } : null,
-      S.bucket ? { label: 'Unfinished uploads…', icon: 'upload', onClick: () => incompleteUploadsDialog(S.conn, S.bucket) } : null,
+      S.bucket ? { label: t('storage.calculateFolderSize'), icon: 'layers', onClick: () => { S.sel.clear(); paintSelection(); measure(S.prefix); S.drawer = true; paintAll(); } } : null,
+      S.bucket ? { label: t('storage.useFolderAsLibrary'), icon: 'library', onClick: () => makeLibrary(S.prefix) } : null,
+      S.bucket ? { label: t('storage.unfinishedUploadsMenu'), icon: 'upload', onClick: () => incompleteUploadsDialog(S.conn, S.bucket) } : null,
       S.bucket ? { sep: true } : null,
-      { label: 'New bucket…', icon: 'plus', onClick: () => newBucket(S.conn) },
-      S.bucket && !S.prefix ? { label: 'Delete this bucket…', icon: 'trash', danger: true, onClick: () => deleteBucket() } : null,
-      { label: 'Edit connection…', icon: 'plug', onClick: () => { const c = state.connections.find(x => x.id === S.conn); c && editConnection(c).then(saved => saved && (S.buckets.delete(S.conn), update([S.conn, S.bucket, ...S.prefix.split('/').filter(Boolean)]))); } },
+      { label: t('storage.newBucketMenu'), icon: 'plus', onClick: () => newBucket(S.conn) },
+      S.bucket && !S.prefix ? { label: t('storage.deleteThisBucket'), icon: 'trash', danger: true, onClick: () => deleteBucket() } : null,
+      { label: t('storage.editConnectionMenu'), icon: 'plug', onClick: () => { const c = state.connections.find(x => x.id === S.conn); c && editConnection(c).then(saved => saved && (S.buckets.delete(S.conn), update([S.conn, S.bucket, ...S.prefix.split('/').filter(Boolean)]))); } },
     ].filter(Boolean);
   }
 
@@ -545,7 +546,7 @@ export async function mount(root, parts) {
       S.search = { q, rows: j.objects.map(toRow.file), truncated: j.truncated, scanned: j.scanned };
       S.filter = '';
       S.sel.clear();
-    } catch (err) { toastError('Search failed', err); }
+    } catch (err) { toastError(t('storage.searchFailed'), err); }
     S.loaded = true;
     paintAll();
   });
@@ -561,9 +562,9 @@ export async function mount(root, parts) {
     let replace = false;
     if (clash.length) {
       const m = modal({
-        title: `${plural(clash.length, 'file')} already exist${clash.length === 1 ? 's' : ''}`, size: 'narrow',
-        body: h('div', h('p', clash.slice(0, 4).map(e => e.path).join(', ') + (clash.length > 4 ? ` and ${clash.length - 4} more` : '')), h('p.muted', 'Replace them with the new files, or keep the existing ones?')),
-        actions: [{ label: 'Cancel', value: 'cancel' }, { label: 'Keep existing', value: 'skip' }, { label: 'Replace', primary: true, value: 'replace' }],
+        title: t('storage.filesExist', { count: clash.length }), size: 'narrow',
+        body: h('div', h('p', clash.length > 4 ? t('storage.namesAndMore', { names: clash.slice(0, 4).map(e => e.path).join(', '), count: clash.length - 4 }) : clash.map(e => e.path).join(', ')), h('p.muted', t('storage.replaceOrKeep'))),
+        actions: [{ label: t('common.cancel'), value: 'cancel' }, { label: t('storage.keepExisting'), value: 'skip' }, { label: t('storage.replace'), primary: true, value: 'replace' }],
       });
       const choice = await m.closed;
       if (!choice || choice === 'cancel') return;
@@ -571,7 +572,7 @@ export async function mount(root, parts) {
     }
     const clashed = new Set(clash.map(e => e.path));
     enqueue(S.conn, S.bucket, entries.map(e => ({ file: e.file, key: S.prefix + e.path, overwrite: replace && clashed.has(e.path) })));
-    toast(`Uploading ${plural(entries.length, 'file')} to ${S.bucket}/${S.prefix}`);
+    toast(t('storage.uploadingTo', { count: entries.length, path: `${S.bucket}/${S.prefix}` }));
   }
   fileInput.addEventListener('change', () => { startUpload([...fileInput.files].map(file => ({ file, path: file.name }))); fileInput.value = ''; });
   dirInput.addEventListener('change', () => { startUpload([...dirInput.files].map(file => ({ file, path: file.webkitRelativePath || file.name }))); dirInput.value = ''; });
@@ -596,48 +597,48 @@ export async function mount(root, parts) {
     detail.hidden = !S.bucket || !S.drawer;
     if (detail.hidden) return;
     const rows = selected();
-    const close = h('button.icon-btn.small.detail-close', { type: 'button', 'aria-label': 'Close details', onclick: () => { S.drawer = false; store.set('stDrawer', '0'); paintAll(); } }, icon('x', 'sm'));
+    const close = h('button.icon-btn.small.detail-close', { type: 'button', 'aria-label': t('storage.closeDetails'), onclick: () => { S.drawer = false; store.set('stDrawer', '0'); paintAll(); } }, icon('x', 'sm'));
     if (!rows.length) {
       const folders = S.rows.filter(r => r.type === 'folder').length, files = S.rows.filter(r => r.type === 'file');
       const m = measureState(S.prefix);
       return fill(detail, h('div.dt-head', icon(S.prefix ? 'folder' : 'bucket'), h('div.dt-title', S.prefix ? leaf(S.prefix) : S.bucket), close),
-        h('dl.dt-list', kv('Location', `s3://${S.bucket}/${S.prefix}`, true), kv('Connection', connName(S.conn)),
-          kv('Loaded here', `${plural(folders, 'folder')}, ${plural(files.length, 'file')} · ${bytes(files.reduce((a, r) => a + r.size, 0))}${S.token ? ' (more available)' : ''}`),
+        h('dl.dt-list', kv(t('storage.location'), `s3://${S.bucket}/${S.prefix}`, true), kv(t('storage.connection'), connName(S.conn)),
+          kv(t('storage.loadedHere'), (S.token ? t('storage.loadedSummaryMore', { folders, files: files.length, size: bytes(files.reduce((a, r) => a + r.size, 0)) }) : t('storage.loadedSummary', { folders, files: files.length, size: bytes(files.reduce((a, r) => a + r.size, 0)) }))),
           measureLine(m)),
-        h('div.dt-actions', h('button.btn.small', { type: 'button', onclick: () => measure(S.prefix) }, icon('layers', 'sm'), 'Calculate size'),
-          h('button.btn.small', { type: 'button', onclick: () => makeLibrary(S.prefix) }, icon('library', 'sm'), 'Use as library')));
+        h('div.dt-actions', h('button.btn.small', { type: 'button', onclick: () => measure(S.prefix) }, icon('layers', 'sm'), t('storage.calculateSize')),
+          h('button.btn.small', { type: 'button', onclick: () => makeLibrary(S.prefix) }, icon('library', 'sm'), t('storage.useAsLibrary'))));
     }
     if (rows.length > 1) {
       const files = rows.filter(r => r.type === 'file');
-      return fill(detail, h('div.dt-head', icon('copy'), h('div.dt-title', plural(rows.length, 'item') + ' selected'), close),
-        h('dl.dt-list', kv('Files', `${num(files.length)} · ${bytes(files.reduce((a, r) => a + r.size, 0))}`), kv('Folders', num(rows.length - files.length))));
+      return fill(detail, h('div.dt-head', icon('copy'), h('div.dt-title', t('storage.selected', { count: rows.length })), close),
+        h('dl.dt-list', kv(t('storage.files'), `${num(files.length)} · ${bytes(files.reduce((a, r) => a + r.size, 0))}`), kv(t('storage.folders'), num(rows.length - files.length))));
     }
     const r = rows[0];
     if (r.type === 'folder') {
       const m = measureState(r.key);
       return fill(detail, h('div.dt-head', icon('folder'), h('div.dt-title', r.name), close),
-        h('dl.dt-list', kv('Location', `s3://${S.bucket}/${r.key}`, true), measureLine(m)),
-        h('div.dt-actions', h('button.btn.small', { type: 'button', onclick: () => measure(r.key) }, icon('layers', 'sm'), 'Calculate size'),
-          h('button.btn.small', { type: 'button', onclick: () => makeLibrary(r.key) }, icon('library', 'sm'), 'Use as library')));
+        h('dl.dt-list', kv(t('storage.location'), `s3://${S.bucket}/${r.key}`, true), measureLine(m)),
+        h('div.dt-actions', h('button.btn.small', { type: 'button', onclick: () => measure(r.key) }, icon('layers', 'sm'), t('storage.calculateSize')),
+          h('button.btn.small', { type: 'button', onclick: () => makeLibrary(r.key) }, icon('library', 'sm'), t('storage.useAsLibrary'))));
     }
-    const list = h('dl.dt-list', kv('Key', r.key, true), kv('Size', `${bytes(r.size)} (${num(r.size)} bytes)`), kv('Modified', when(r.mtime)));
+    const list = h('dl.dt-list', kv(t('storage.key'), r.key, true), kv(t('storage.size'), t('storage.sizeBytes', { size: bytes(r.size), bytes: r.size })), kv(t('storage.modified'), when(r.mtime)));
     const pv = h('div.dt-preview', preview(S.conn, S.bucket, r.key, r.size));
     fill(detail, h('div.dt-head', icon(kindIcon(r.kind)), h('div.dt-title', { title: r.name }, r.name.split('/').pop()), close), pv, list);
     headOf(r.key).then(info => {
       if (!S.sel.has(r.key) || S.sel.size !== 1) return;
-      if (info.error) return list.append(kv('Details', info.error));
-      list.append(...[kv('Content type', info.content_type || info.guessed_type || '–'), kv('ETag', info.etag, true), kv('Storage class', info.storage_class),
-        info.cache_control ? kv('Cache-Control', info.cache_control) : null, info.version_id ? kv('Version', info.version_id, true) : null,
+      if (info.error) return list.append(kv(t('storage.details'), info.error));
+      list.append(...[kv(t('storage.contentType'), info.content_type || info.guessed_type || '–'), kv('ETag', info.etag, true), kv(t('storage.storageClass'), info.storage_class),
+        info.cache_control ? kv('Cache-Control', info.cache_control) : null, info.version_id ? kv(t('storage.version'), info.version_id, true) : null,
         ...Object.entries(info.metadata || {}).map(([k, v]) => kv(`x-amz-meta-${k}`, v)),
-        h('div', h('button.btn.small', { type: 'button', onclick: () => properties(r) }, icon('sliders', 'sm'), 'Edit properties'))].filter(Boolean));
+        h('div', h('button.btn.small', { type: 'button', onclick: () => properties(r) }, icon('sliders', 'sm'), t('storage.editProperties')))].filter(Boolean));
     });
   }
   const kv = (k, v, mono = false) => h('div', h('dt', k), h('dd', { class: mono ? 'mono' : '' }, v));
   function measureLine(m) {
     if (!m) return null;
-    if (m.state === 'running') return kv('Size', `Counting… ${num(m.done)} objects so far`);
-    if (m.state === 'done' && m.result) return kv('Size', `${bytes(m.result.bytes)} in ${plural(m.result.objects, 'object')}`);
-    return kv('Size', m.state === 'cancelled' ? 'Cancelled' : (m.errors[0] || 'Could not measure'));
+    if (m.state === 'running') return kv(t('storage.size'), t('storage.counting', { count: m.done }));
+    if (m.state === 'done' && m.result) return kv(t('storage.size'), t('storage.sizeInObjects', { size: bytes(m.result.bytes), count: m.result.objects }));
+    return kv(t('storage.size'), m.state === 'cancelled' ? t('storage.cancelled') : (m.errors[0] || t('storage.couldNotMeasure')));
   }
 
   // ---------------------------------------------------------------- start

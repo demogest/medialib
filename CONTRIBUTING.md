@@ -76,7 +76,7 @@ docs/               design notes and the README's screenshots
 ## Tests and checks
 
 ```bash
-make lint                                       # gofmt, every UI script parses (node --check), shell scripts parse, VERSION
+make lint                                       # gofmt, every UI script parses (node --check), shell scripts parse, VERSION, translations
 make test                                       # go vet and the unit tests, with -race
 make e2e                                        # the whole API against a mock S3 (needs requirements-dev.txt and ffmpeg)
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12    # after changing .github/workflows/
@@ -97,7 +97,7 @@ Unit tests sit beside the code (`*_test.go`); a change to the API wants a case i
 ## Conventions
 
 - **Go**: `gofmt`. Comments say why, in full sentences. Errors a user will see are written for them, not for a developer.
-- **Interface text** is plain language, as [docs/DESIGN.md](docs/DESIGN.md) sets out: *scan* and *covers*, not *index* and *keyframes*; KB, MB and GB; *Added 3 d ago*; sentence-case headings. Every empty or broken state says what happened and offers the one action that fixes it. Never show `127.0.0.1` or a port.
+- **Interface text** is plain language, as [docs/DESIGN.md](docs/DESIGN.md) sets out: *scan* and *covers*, not *index* and *keyframes*; KB, MB and GB; *Added 3 d ago*; sentence-case headings. Every empty or broken state says what happened and offers the one action that fixes it. Never show `127.0.0.1` or a port. None of it is written into the code: it goes in `web/locales/en.json` and the code asks for it with `t()` (see [Translations](#translations)).
 - **Settings**: a new `config.json` key goes in `internal/config`, the README's configuration table and `config.example.json` if it belongs there. Keys medialib does not know are kept when it saves the file.
 - **Pull requests** are squash-merged: the PR's title becomes the commit's title, a heading in the release notes, and its description the text under it. So write the title for someone reading what changed, and the description as the list of changes.
 - **Say what kind of change it is** at the start of the title. The release notes put every change under one of three headings, and the prefix (or the label) decides which; the notes leave the prefix out, so the heading reads *Keep covers when a scan stops*, not *fix: keep covers …*:
@@ -112,6 +112,32 @@ Unit tests sit beside the code (`*_test.go`); a change to the API wants a case i
 - **Versions** are not edited by hand: `VERSION`, `winres/versioninfo.json`, the `.syso` files and the installer's `AppVersion` are set by `scripts/set-version.sh`, which the release workflow runs after each release.
 - **Generated files**: the Windows resources (`resource_windows_*.syso`) come from `winres/` with `go generate ./cmd/medialib`; the icon from `go run ./scripts/genicon`. Both are committed, so a plain `go build` has them.
 - Never commit `config.json`, `cache/` or `dist/` (they are in `.gitignore`).
+
+## Translations
+
+The interface comes in English and Simplified Chinese. It shows the language chosen in Settings → Appearance → Language, else the first of the browser's (or the desktop app's system) languages it has, else English. Release notes from GitHub, and messages that come from the server or from a store, are not translated.
+
+**Where the text is.** Every message is in `web/locales/<code>.json`, one flat JSON file per language: a key, and the message in [ICU MessageFormat](https://unicode-org.github.io/icu/userguide/format_parse/messages/), the format Weblate, Crowdin, Lokalise, Transifex and Poedit read. `en.json` is the source: every other language translates it, and shows its English for anything it lacks. `template.json` is the same keys with empty messages, for tools that want a template to start a language from. A message can hold:
+
+| | Example |
+|---|---|
+| A value | `"Opening in {player}"` |
+| A number that changes the words | `"{count, plural, one {# video} other {# videos}}"` (Chinese needs only `other`: `"{count, plural, other {# 个视频}}"`) |
+| A choice | `"{kind, select, local {Folder not found} other {Connection missing}}"` |
+| An apostrophe beside a brace | `''` |
+
+Numbers are written the language's way (`1,234`); keep `{names}` exactly as English has them, and translate the words around them in any order.
+
+**Add a language**:
+
+1. `node scripts/i18n.mjs new fr` (any [BCP 47](https://www.w3.org/International/articles/language-tags/) code: `fr`, `pt-BR`, `zh-TW`) writes `web/locales/fr.json` from the template.
+2. Add it to `LANGUAGES` in `web/js/lib/languages.js`, with its name in itself (`['fr', 'Français']`).
+3. Translate the messages, in the file or in a translation tool, and see them with `MEDIALIB_WEB=web dist/medialib serve`, choosing the language in Settings.
+4. `node scripts/i18n.mjs check`, then open a pull request (`feat: French translation`). A partial translation is welcome: what is missing shows in English.
+
+**Change the interface's text** in `en.json`, never in a `.js` file: `h('h2', t('home.recentlyPlayed'))`, or `tx()` for a message with an element in it (`tx('home.tip', { keys: h('kbd', 'Ctrl K') })`). A key is the screen and what the text says (`library.scanForVideos`); a sentence is one message with placeholders, never pieces joined in code, because other languages order the words differently. Write the key as a literal, not built at run time, so the check can find it, and do not name a variable `t` in a file that imports it. Add the Chinese too if you can; if not, the check says it is missing and English shows until someone translates it. Renaming a key or changing what an English message means wants the same change in every language. After changing `en.json`, run `node scripts/i18n.mjs template`.
+
+**The check** (`node scripts/i18n.mjs check`, part of `make lint` and so of CI) fails when the code uses a key `en.json` lacks, `en.json` has a key nothing uses, a translation has a key English does not, a message does not parse, a translation's placeholders differ from English's, or `template.json` is out of date. A message a language has not translated yet is a warning, not a failure.
 
 ## Performance
 
