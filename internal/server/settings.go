@@ -468,7 +468,7 @@ func (a *App) updateAction(c *Ctx) (any, error) {
 	return nil, config.Errorf("Unknown update action.")
 }
 
-// RunUpdates looks for a new version now and then while ctx lasts (unless updates are off), and with "auto"
+// RunUpdates looks for a new version as medialib starts, and then once a day while ctx lasts (unless updates are off), and with "auto"
 // downloads it: a program file is replaced at once and the next start is the new version; a setup program runs when
 // medialib closes (AtExit).
 func (a *App) RunUpdates(ctx context.Context) {
@@ -480,7 +480,9 @@ func (a *App) RunUpdates(ctx context.Context) {
 		a.Updates.Cleanup() // what the previous update left, once that copy is surely gone
 	}()
 	go func() {
-		wait := 30 * time.Second
+		// Every launch looks: at once, so the sidebar can say so by the time the window is up. A copy left running
+		// (a server) looks again once a day.
+		wait := time.Duration(0)
 		for {
 			select {
 			case <-ctx.Done():
@@ -492,7 +494,7 @@ func (a *App) RunUpdates(ctx context.Context) {
 			if mode == "off" {
 				continue
 			}
-			st := a.Updates.Check(ctx, 12*time.Hour)
+			st := a.Updates.Check(ctx, 24*time.Hour)
 			if mode == "auto" && st.Available && st.CanInstall && !st.Ready {
 				_ = a.Updates.Prepare(ctx)
 			}

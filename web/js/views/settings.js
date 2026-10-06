@@ -94,8 +94,8 @@ export async function mount(root, parts = []) {
         upd.latest && upd.notes ? btn('What’s new', () => notes(upd)) : null,
         btn('Check now', () => check(), { icon: 'refresh' })));
     }
-    rows.push(row('Automatic updates', info.mode === 'desktop' ? 'Look for a new version every few hours; or also download it, and install it as medialib closes.'
-      : 'Look for a new version every few hours and say so here. A server is updated by replacing its program (or image).',
+    rows.push(row('Automatic updates', info.mode === 'desktop' ? 'Look for a new version every time medialib starts; or also download it, and install it as medialib closes.'
+      : 'Look for a new version when medialib starts, and once a day while it runs, and say so here. A server is updated by replacing its program (or image).',
     choice(info.mode === 'desktop' ? UPDATES : UPDATES.slice(0, 2), info.updates === 'auto' && info.mode !== 'desktop' ? 'notify' : info.updates, v => save({ updates: v }), 'Automatic updates')));
     return rows;
   }
@@ -136,7 +136,13 @@ export async function mount(root, parts = []) {
       h('h2.notes-version', `Version ${r.version}`, r.version === u.current ? h('span.notes-when', ' · the one you have') : null,
         r.published ? h('span.notes-when', ` · released ${ago(r.published)}`) : null),
       body(r)))),
-      actions: [page ? { label: 'Open on GitHub', left: true, onClick: () => window.open(page, '_blank') } : null, { label: 'Close', primary: true }].filter(Boolean) });
+      actions: [page ? { label: 'Open on GitHub', left: true, onClick: () => window.open(page, '_blank') } : null,
+        canUpdate(u) ? { label: 'Close' } : { label: 'Close', primary: true },
+        canUpdate(u) ? { label: `Update to ${u.latest}`, primary: true, onClick: () => install() } : null].filter(Boolean) });
+  }
+  // Whether this page can update medialib right now: a newer version this copy installs itself, on this computer.
+  function canUpdate(u) {
+    return u.available && u.can_install && !u.ready && u.state !== 'downloading' && here();
   }
 
   // ---------------------------------------------------------------- indexing

@@ -91,7 +91,7 @@ Every release lists its files and has a `SHA256SUMS` to check them against (`sha
 
 ### Updates
 
-medialib looks for a new release every few hours and says so in the sidebar and under Settings → About. **What's new** shows the release notes of every version since yours, newest first; it opens by itself when **Check now** finds one. The desktop app installs it with **Update now**, or by itself as it closes with *Install automatically*. A download is used only if it matches the release's `SHA256SUMS`; a Windows install runs the new setup and comes back, a portable copy replaces its own program. A server only tells you: replace its program or image. Settings → About → Automatic updates → *Off* (`"updates": "off"`) never asks GitHub. Alpha and beta versions are never offered.
+medialib looks for a new release every time it starts (and once a day while it keeps running) and says so in the sidebar and under Settings → About. **What's new** shows the release notes of every version since yours, newest first; it opens by itself when **Check now** finds one, and has the **Update to …** button. The desktop app installs it with **Update now**, or by itself as it closes with *Install automatically*. A download is used only if it matches the release's `SHA256SUMS`; a Windows install runs the new setup and comes back, a portable copy replaces its own program. A server only tells you: replace its program or image. Settings → About → Automatic updates → *Off* (`"updates": "off"`) never asks GitHub. Alpha and beta versions are never offered.
 
 ## Two ways to run it
 
