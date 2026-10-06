@@ -149,6 +149,26 @@ dialog::backdrop { background: rgb(8 12 20 / .5); backdrop-filter: blur(2px); }
 .table tr.selected td { background: var(--active); }
 .table td.num, .table th.num { text-align: right; }
 
+/* ---------- progress: a slim rounded bar in the accent colour; with no value, a band that sweeps across ---------- */
+progress {
+  -webkit-appearance: none; appearance: none; display: inline-block; vertical-align: middle;
+  height: 8px; border: 0; border-radius: 999px; overflow: hidden;
+  background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
+}
+progress::-webkit-progress-bar { background: transparent; }
+progress::-webkit-progress-value {
+  border-radius: 999px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 75%, #fff), var(--accent));
+  transition: inline-size .4s ease;
+}
+progress::-moz-progress-bar { border-radius: 999px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 75%, #fff), var(--accent)); }
+progress:indeterminate {
+  background: linear-gradient(90deg, transparent 0 35%, var(--accent) 50%, transparent 65% 100%) 0 0 / 250% 100% no-repeat,
+    color-mix(in srgb, var(--accent) 16%, transparent);
+  animation: progress-sweep 1.4s ease-in-out infinite;
+}
+progress:indeterminate::-moz-progress-bar { background: transparent; }
+@keyframes progress-sweep { from { background-position: 100% 0, 0 0; } to { background-position: 0% 0, 0 0; } }
+
 /* ---------- toast ---------- */
 .toasts { position: fixed; left: 50%; bottom: 22px; z-index: 120; display: grid; gap: 8px; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 24px); pointer-events: none; }
 .toast {

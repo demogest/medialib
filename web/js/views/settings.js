@@ -71,7 +71,7 @@ export async function mount(root, parts = []) {
       // done and total are left out of the JSON while 0; with no size known, the bar just shows that something is happening.
       const done = upd.done || 0, total = upd.total || 0;
       const pct = total ? Math.min(100, Math.round(100 * done / total)) : null;
-      rows.push(row(`Downloading ${upd.latest}…`, pct === null ? (done ? `${bytes(done)} so far` : 'Starting…') : `${pct}% of ${bytes(total)}`,
+      rows.push(row(`Downloading ${upd.latest}…`, pct === null ? (done ? `${bytes(done)} so far` : 'Starting…') : `${bytes(done)} of ${bytes(total)} · ${pct}%`,
         h('progress.set-progress', pct === null ? { max: 100 } : { max: 100, value: pct })));
     } else if (upd.ready) {
       rows.push(row(`Version ${upd.latest} is ready`, 'Restart medialib to finish the update.',

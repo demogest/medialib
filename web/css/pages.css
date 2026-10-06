@@ -56,7 +56,7 @@ details.advanced[open] summary { margin-bottom: 14px; }
 .set-row .bad-text { font-size: 12.5px; margin-top: 2px; }
 .set-name .tag { margin-left: 8px; vertical-align: 1px; }
 .set-foot { gap: 8px; background: var(--surface-2); }
-.set-progress { width: 180px; accent-color: var(--accent); }
+.set-progress { width: 180px; }
 .radio { flex: none; width: 18px; height: 18px; padding: 0; border: 2px solid var(--rule-strong); border-radius: 50%; background: var(--surface); }
 .radio[aria-checked="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 3px var(--surface); background: var(--accent); }
 .radio:not(:disabled):hover { border-color: var(--accent); }
