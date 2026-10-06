@@ -306,8 +306,8 @@ func TestNotesOfEveryReleaseSinceThisCopy(t *testing.T) {
 		t.Errorf("no release date: %+v", st.Releases[1])
 	}
 	u = &Updater{Current: "3.4.0", API: srv.URL, Exe: installedCopy(t, "medialib")}
-	if got := strings.Join(versions(u.Check(context.Background(), 0).Releases), ","); got != "3.4.0:four" {
-		t.Errorf("up to date: releases = %s", got)
+	if st := u.Check(context.Background(), 0); len(st.Releases) != 0 || st.Notes != "" {
+		t.Errorf("up to date: notes %q, releases %v", st.Notes, st.Releases)
 	}
 
 	// No list of releases (GitHub refused it): the latest release's notes.
