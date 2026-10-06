@@ -7,6 +7,7 @@ import { extOf } from './fmt.js';
 import { state } from './state.js';
 import { store } from './store.js';
 import { modal, toast, toastError } from './ui.js';
+import { t } from './i18n.js';
 
 const ua = navigator.userAgent;
 const isIOS = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
@@ -44,8 +45,8 @@ function apps(url, sub, it) {
   const q = encodeURIComponent;
   if (isIOS) {
     return [
-      { id: 'vlc', label: 'Open in VLC', href: `vlc-x-callback://x-callback-url/stream?url=${q(url)}` + (sub ? `&sub=${q(sub)}` : '') },
-      { id: 'infuse', label: 'Open in Infuse', href: `infuse://x-callback-url/play?url=${q(url)}` },
+      { id: 'vlc', label: t('handoff.openIn', { app: 'VLC' }), href: `vlc-x-callback://x-callback-url/stream?url=${q(url)}` + (sub ? `&sub=${q(sub)}` : '') },
+      { id: 'infuse', label: t('handoff.openIn', { app: 'Infuse' }), href: `infuse://x-callback-url/play?url=${q(url)}` },
     ];
   }
   if (isAndroid) {
@@ -53,8 +54,8 @@ function apps(url, sub, it) {
     const intent = pkg => `intent://${u.host}${u.pathname}${u.search}#Intent;scheme=${u.protocol.slice(0, -1)};type=${it.kind === 'audio' ? 'audio' : 'video'}/*;`
       + (pkg ? `package=${pkg};` : '') + `S.title=${q(it.name)};end`;
     return [
-      { id: 'vlc', label: 'Open in VLC', href: intent('org.videolan.vlc') },
-      { id: 'other', label: 'Open in another app', href: intent('') },
+      { id: 'vlc', label: t('handoff.openIn', { app: 'VLC' }), href: intent('org.videolan.vlc') },
+      { id: 'other', label: t('handoff.openInOther'), href: intent('') },
     ];
   }
   return [];
@@ -65,7 +66,7 @@ export async function playHere(lib, it) {
   const url = await streamUrl(lib, it);
   if (browserPlays(it)) {
     window.open(url, '_blank');
-    toast('Opening the video in your browser', { kind: 'ok' });
+    toast(t('handoff.openingInBrowser'), { kind: 'ok' });
     return;
   }
   const list = apps(url, subUrl(lib, it), it);
@@ -73,21 +74,21 @@ export async function playHere(lib, it) {
   const go = a => { store.set('handoffApp', a.id); location.href = a.href; };
   const playlist = `/api/playlist.m3u8?lib=${encodeURIComponent(lib)}&ids=${encodeURIComponent(it.id)}`;
   const copy = async () => {
-    try { await navigator.clipboard.writeText(url); toast('Link copied', { kind: 'ok' }); } catch (e) { toastError('Could not copy the link', e); }
+    try { await navigator.clipboard.writeText(url); toast(t('handoff.linkCopied'), { kind: 'ok' }); } catch (e) { toastError(t('handoff.copyFailed'), e); }
   };
   const ext = extOf(it.name).toUpperCase();
   const m = modal({
-    title: 'Play in an app',
+    title: t('handoff.title'),
     body: h('div',
-      h('p', `This browser can’t play ${ext ? 'this ' + ext + ' video' : 'this file'}${it.codec ? ` (${CODEC_NAME[it.codec] || it.codec.toUpperCase()})` : ''}. Open it in a player app instead.`),
+      h('p', t('handoff.cantPlay', { hasExt: ext ? 'yes' : 'no', format: ext, hasCodec: it.codec ? 'yes' : 'no', codec: it.codec ? CODEC_NAME[it.codec] || it.codec.toUpperCase() : '' })),
       list.length ? h('div.handoff', list.map(a => h('a.btn', { href: a.href, class: a.id === last || (!last && a === list[0]) ? 'primary' : '',
         onclick: e => { e.preventDefault(); m.close(); go(a); } }, a.label)))
-        : h('p.hint', 'Download the playlist and open it with VLC, mpv or any other player on this computer.'),
-      list.length ? h('p.hint', isIOS ? 'Each one needs its app from the App Store.' : 'Each one needs its app from Google Play.') : null),
+        : h('p.hint', t('handoff.playlistHint')),
+      list.length ? h('p.hint', isIOS ? t('handoff.needsAppStore') : t('handoff.needsGooglePlay')) : null),
     actions: [
-      { label: 'Copy link', left: true, keepOpen: true, onClick: copy },
-      { label: 'Try the browser', onClick: () => window.open(url, '_blank') },
-      list.length ? null : { label: 'Download playlist', primary: true, onClick: () => { location.href = playlist; } },
+      { label: t('handoff.copyLink'), left: true, keepOpen: true, onClick: copy },
+      { label: t('handoff.tryBrowser'), onClick: () => window.open(url, '_blank') },
+      list.length ? null : { label: t('handoff.downloadPlaylist'), primary: true, onClick: () => { location.href = playlist; } },
     ].filter(Boolean),
   });
 }

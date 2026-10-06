@@ -6,23 +6,24 @@ import { icon, logo } from '../lib/icons.js';
 import { href, navigate, parseHash } from '../lib/router.js';
 import { on, requestLibraryAction, running, state } from '../lib/state.js';
 import { store } from '../lib/store.js';
+import { t } from '../lib/i18n.js';
 
 // Every place there is, for the palette and the Alt+number shortcuts.
 export const SECTIONS = [
-  { id: 'home', label: 'Home', icon: 'home', hint: 'Recently played, recently added and your libraries' },
-  { id: 'library', label: 'Library', icon: 'library', hint: 'Browse your videos' },
-  { id: 'storage', label: 'Storage', icon: 'storage', hint: 'Browse and manage buckets' },
-  { id: 'activity', label: 'Activity', icon: 'activity', hint: 'Scans, copies and moves' },
-  { id: 'settings', label: 'Settings', icon: 'settings', hint: 'Players, indexing, updates and appearance' },
-  { id: 'connections', label: 'Connections', icon: 'plug', hint: 'S3 stores and their credentials' },
+  { id: 'home', label: t('nav.home'), icon: 'home', hint: t('nav.homeHint') },
+  { id: 'library', label: t('nav.library'), icon: 'library', hint: t('nav.libraryHint') },
+  { id: 'storage', label: t('nav.storage'), icon: 'storage', hint: t('nav.storageHint') },
+  { id: 'activity', label: t('nav.activity'), icon: 'activity', hint: t('nav.activityHint') },
+  { id: 'settings', label: t('nav.settings'), icon: 'settings', hint: t('nav.settingsHint') },
+  { id: 'connections', label: t('nav.connections'), icon: 'plug', hint: t('nav.connectionsHint') },
 ];
 
 export const isDark = () => document.documentElement.dataset.theme === 'dark'
   || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
 
-export function setTheme(t) {
-  if (t === 'system') { delete document.documentElement.dataset.theme; store.set('theme', 'system'); }
-  else { document.documentElement.dataset.theme = t; store.set('theme', t); }
+export function setTheme(mode) {
+  if (mode === 'system') { delete document.documentElement.dataset.theme; store.set('theme', 'system'); }
+  else { document.documentElement.dataset.theme = mode; store.set('theme', mode); }
   document.dispatchEvent(new Event('themechange'));
 }
 export const toggleTheme = () => setTheme(isDark() ? 'light' : 'dark');
@@ -48,40 +49,40 @@ export function buildSidebar(root, { onSearch }) {
   const libs = h('div.side-list', { id: 'side-libs' });
   const conns = h('div.side-list', { id: 'side-conns' });
   const cloud = h('div', { hidden: true },
-    h('div.side-group', h('span.nav-label', 'Cloud storage'),
-      h('a.mini', { href: href('connections'), 'aria-label': 'Connections', title: 'Add or edit connections' }, icon('plus', 'sm'))),
+    h('div.side-group', h('span.nav-label', t('nav.cloudStorage')),
+      h('a.mini', { href: href('connections'), 'aria-label': t('nav.connections'), title: t('nav.editConnections') }, icon('plus', 'sm'))),
     conns);
   const themeBtn = h('button.icon-btn.theme-btn', { type: 'button', onclick: toggleTheme });
   const updateBtn = h('a.nav-item.update-pill', { href: href('settings', 'about'), hidden: true });
-  const busy = h('a.busy-chip', { href: href('activity'), hidden: true, title: 'Activity' });
-  const storageTab = tab('storage', 'Storage', 'storage', { class: 'mobile-only', hidden: true });
+  const busy = h('a.busy-chip', { href: href('activity'), hidden: true, title: t('nav.activity') });
+  const storageTab = tab('storage', t('nav.storage'), 'storage', { class: 'mobile-only', hidden: true });
 
   root.append(
     h('div.app-head',
       h('a.brand', { href: href('home'), title: 'Media Library' }, h('span.brand-mark', logo()), h('span.brand-name', 'Media Library')),
       themeBtn,
-      h('button.icon-btn.collapse', { type: 'button', 'aria-label': 'Collapse sidebar', title: 'Collapse sidebar (Ctrl+B)', onclick: toggleSidebar }, icon('chevron-left', 'sm'))),
-    h('button.side-search', { type: 'button', onclick: onSearch, title: 'Search everything (Ctrl+K)' },
-      icon('search', 'sm'), h('span.nav-label', 'Search'), h('kbd.kbd-hint', 'Ctrl K')),
-    h('nav.side-nav', { 'aria-label': 'Sections' },
-      tab('home', 'Home', 'home', { title: 'Home  (Alt+1)' }),
-      tab('library', 'Library', 'library', { class: 'mobile-only' }),
-      h('button.nav-item.mobile-only', { type: 'button', onclick: onSearch }, icon('search'), h('span.nav-label', 'Search')),
+      h('button.icon-btn.collapse', { type: 'button', 'aria-label': t('nav.collapse'), title: t('nav.collapseTitle'), onclick: toggleSidebar }, icon('chevron-left', 'sm'))),
+    h('button.side-search', { type: 'button', onclick: onSearch, title: t('nav.searchTitle') },
+      icon('search', 'sm'), h('span.nav-label', t('nav.search')), h('kbd.kbd-hint', 'Ctrl K')),
+    h('nav.side-nav', { 'aria-label': t('nav.sections') },
+      tab('home', t('nav.home'), 'home', { title: t('nav.homeTitle') }),
+      tab('library', t('nav.library'), 'library', { class: 'mobile-only' }),
+      h('button.nav-item.mobile-only', { type: 'button', onclick: onSearch }, icon('search'), h('span.nav-label', t('nav.search'))),
       storageTab),
     h('div.side-scroll',
-      h('div.side-group', h('span.nav-label', 'Libraries'), h('span.mini-group',
-        h('button.mini', { type: 'button', 'aria-label': 'Manage libraries', title: 'Rename, rescan or remove libraries', onclick: () => openLibraryAction('manage') }, icon('sliders', 'sm')),
-        h('button.mini', { type: 'button', 'aria-label': 'Add a library', title: 'Add a library', onclick: () => openLibraryAction('add') }, icon('plus', 'sm')))),
+      h('div.side-group', h('span.nav-label', t('nav.libraries')), h('span.mini-group',
+        h('button.mini', { type: 'button', 'aria-label': t('nav.manageLibraries'), title: t('nav.manageLibrariesTitle'), onclick: () => openLibraryAction('manage') }, icon('sliders', 'sm')),
+        h('button.mini', { type: 'button', 'aria-label': t('nav.addLibrary'), title: t('nav.addLibrary'), onclick: () => openLibraryAction('add') }, icon('plus', 'sm')))),
       libs,
       cloud),
-    h('div.app-foot', busy, updateBtn, tab('settings', 'Settings', 'settings', { title: 'Settings  (Alt+5)' })),
+    h('div.app-foot', busy, updateBtn, tab('settings', t('nav.settings'), 'settings', { title: t('nav.settingsTitle') })),
   );
-  const expand = h('button.icon-btn.expand', { type: 'button', 'aria-label': 'Expand sidebar', title: 'Expand sidebar (Ctrl+B)', onclick: toggleSidebar }, icon('chevron-right', 'sm'));
+  const expand = h('button.icon-btn.expand', { type: 'button', 'aria-label': t('nav.expand'), title: t('nav.expandTitle'), onclick: toggleSidebar }, icon('chevron-right', 'sm'));
   root.append(expand);
 
   const paintTheme = () => {
     themeBtn.replaceChildren(icon(isDark() ? 'sun' : 'moon', 'sm'));
-    themeBtn.title = isDark() ? 'Light mode' : 'Dark mode';
+    themeBtn.title = isDark() ? t('nav.lightMode') : t('nav.darkMode');
     themeBtn.setAttribute('aria-label', themeBtn.title);
   };
   paintTheme();
@@ -94,9 +95,9 @@ export function buildSidebar(root, { onSearch }) {
       const pct = scanning && j.total ? Math.round(100 * j.done / j.total) : null;
       return h('a.side-link', { href: href('library', l.id), dataset: { lib: l.id }, title: l.name },
         icon(l.type === 'local' ? 'folder' : 'cloud', 'sm'), h('span.nav-label.grow', l.name),
-        scanning ? h('span.spin', { title: pct == null ? 'Scanning…' : `Scanning ${pct}%` })
+        scanning ? h('span.spin', { title: pct == null ? t('nav.scanning') : t('nav.scanningPct', { pct }) })
           : l.items ? h('span.side-count.nav-label', l.items > 999 ? Math.round(l.items / 100) / 10 + 'k' : String(l.items)) : null);
-    }) : [h('button.side-empty.nav-label', { type: 'button', onclick: () => openLibraryAction('add') }, icon('plus', 'sm'), 'Add your first library')]));
+    }) : [h('button.side-empty.nav-label', { type: 'button', onclick: () => openLibraryAction('add') }, icon('plus', 'sm'), t('nav.addFirstLibrary'))]));
     conns.replaceChildren(...state.connections.map(c =>
       h('a.side-link', { href: href('storage', c.id), dataset: { conn: c.id }, title: `${c.name}  ${c.endpoint || ''}` },
         icon('server', 'sm'), h('span.nav-label.grow', c.name))));
@@ -107,13 +108,13 @@ export function buildSidebar(root, { onSearch }) {
   // Work in the background: a chip that says what runs (one scan by name), and leads to Activity.
   const paintBusy = () => {
     const jobs = state.libs.filter(l => running(state.jobs[l.id]));
-    const tasks = state.tasks.filter(t => t.state === 'running');
+    const tasks = state.tasks.filter(task => task.state === 'running');
     const n = jobs.length + tasks.length;
     busy.hidden = !n;
     if (n) {
       const j = jobs.length ? state.jobs[jobs[0].id] : null;
       const pct = j && j.total ? Math.round(100 * j.done / j.total) : null;
-      const label = n > 1 ? `${n} things running` : j ? `Scanning ${jobs[0].name}${pct == null ? '…' : ` · ${pct}%`}` : tasks[0].title;
+      const label = n > 1 ? t('nav.thingsRunning', { n }) : j ? (pct == null ? t('nav.scanningLib', { name: jobs[0].name }) : t('nav.scanningLibPct', { name: jobs[0].name, pct })) : tasks[0].title;
       busy.title = label;
       busy.replaceChildren(h('span.spin'), h('span.nav-label.grow', label));
     }
@@ -123,8 +124,8 @@ export function buildSidebar(root, { onSearch }) {
     const u = state.update, show = !!u && (u.available || u.ready);
     updateBtn.hidden = !show;
     if (!show) return;
-    const label = u.ready ? 'Restart to update' : u.state === 'downloading' ? `Downloading ${u.latest}…` : `Update to ${u.latest}`;
-    updateBtn.title = `${label}: medialib ${u.current} → ${u.latest}`;
+    const label = u.ready ? t('nav.restartToUpdate') : u.state === 'downloading' ? t('nav.downloading', { version: u.latest }) : t('nav.updateTo', { version: u.latest });
+    updateBtn.title = t('nav.updateTitle', { label, current: u.current, latest: u.latest });
     updateBtn.replaceChildren(icon(u.ready ? 'refresh' : 'download'), h('span.nav-label', label));
   };
   let view = '', parts = [];

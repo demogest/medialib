@@ -87,7 +87,7 @@ Every release lists its files and has a `SHA256SUMS` to check them against (`sha
 
 **Activity**: scans, copies, moves, deletes and size scans, with progress, cancel and a list of what failed. A chip in the sidebar shows while anything runs.
 
-**Settings**: theme; automatic scanning, cover quality and files at once; the players (add one, remove one, pick the default, look again); your own ffmpeg, ffprobe or rclone; where the index and covers live (moved for you, with progress); cloud storage; updates.
+**Settings**: theme and language (English or 简体中文; it follows your browser until you pick one); automatic scanning, cover quality and files at once; the players (add one, remove one, pick the default, look again); your own ffmpeg, ffprobe or rclone; where the index and covers live (moved for you, with progress); cloud storage; updates.
 
 ### Updates
 
@@ -174,7 +174,7 @@ Found a security problem? Please report it privately, as [SECURITY.md](SECURITY.
 
 ## Contributing
 
-Found a bug or have an idea? [Open an issue](https://github.com/demogest/medialib/issues/new/choose): there is a short form for each. Building from source, the code's layout, tests, conventions and how releases are made: [CONTRIBUTING.md](CONTRIBUTING.md). Who the app is for and how its interface decides things: [docs/DESIGN.md](docs/DESIGN.md). Coding agents: [AGENTS.md](AGENTS.md).
+Found a bug or have an idea? [Open an issue](https://github.com/demogest/medialib/issues/new/choose): there is a short form for each. Building from source, the code's layout, tests, conventions and how releases are made: [CONTRIBUTING.md](CONTRIBUTING.md). Who the app is for and how its interface decides things: [docs/DESIGN.md](docs/DESIGN.md). Coding agents: [AGENTS.md](AGENTS.md). To translate medialib into your language, see [Translations](CONTRIBUTING.md#translations).
 
 ## License
 

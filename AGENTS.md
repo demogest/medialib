@@ -9,7 +9,7 @@ Media Library: a self-hosted media library and S3 storage browser. One Go binary
 ## Commands
 
 ```bash
-make lint          # gofmt, node --check on every UI script, sh -n on scripts, VERSION format
+make lint          # gofmt, node --check on every UI script, sh -n on scripts, VERSION format, translations
 make test          # go vet + go test -race ./...
 make e2e           # API tests against a mock S3; needs `pip install -r requirements-dev.txt` and ffmpeg
 make server        # dist/medialib
@@ -24,7 +24,7 @@ Before you finish: `make lint` and `make test` pass; `make e2e` too if you touch
 
 - `internal/server/routes.go`: every HTTP route and its access class; `http.go`: `guard`, the access rules.
 - `internal/config`: `config.json`, settings, paths. `internal/media`: scanning, keyframes, index files. `internal/search`: matching and filters. `internal/s3`: the S3 client. `internal/storage`: bucket operations. `internal/players`: finding and launching players. `internal/update`: self-update.
-- `web/js/lib/` (dom, api, state, router, fmt, ui), `web/js/shell/` (sidebar, palette, shortcuts), `web/js/views/` (one file per screen), `web/css/`.
+- `web/js/lib/` (dom, api, state, router, fmt, ui, i18n), `web/locales/` (the interface's text, one file per language), `web/js/shell/` (sidebar, palette, shortcuts), `web/js/views/` (one file per screen), `web/css/`.
 - `tests/e2e/test_api.py`: end-to-end API tests. Unit tests sit beside the code.
 
 ## Rules
@@ -32,7 +32,7 @@ Before you finish: `make lint` and `make test` pass; `make e2e` too if you touch
 - **Go**: `gofmt`. Standard library first; do not add a dependency without being asked. No cgo outside the `desktop` build tag. Code for one OS goes in `*_windows.go` with an `*_other.go` or `*_unix.go` counterpart, so every target still builds (`make cross`).
 - **Routes**: declare every new route in `routes.go` with the narrowest access class: `open` (anyone who can reach the server: viewing), `private` (this computer or a signed-in user: storage, connections, any change), `machine` (this computer only: anything acting on the host, such as players and dialogs). Never send a secret to the browser. Serve files from user storage through `inert()`.
 - **Frontend**: plain ES modules, no frameworks, no npm packages, no build step. Build the DOM with `h()`/`fill()` from `lib/dom.js`; call the API with `get`/`post`/`del` from `lib/api.js` (it adds the `X-Medialib` header that changes require). Every file must pass `node --check`.
-- **Interface text**: plain language. *Scan* and *covers*, not *index* and *keyframes*; KB/MB/GB; relative dates; sentence case. Never show `127.0.0.1`, a port or an internal id. Every empty or error state says what happened and offers the one action that fixes it. Read `docs/DESIGN.md` before adding a screen, a button or a setting.
+- **Interface text**: never a literal in the code: add it to `web/locales/en.json` (and `zh-CN.json`) and call `t('screen.key', { values })` from `lib/i18n.js`, `tx()` when the message holds an element. One message per sentence, with ICU placeholders and plurals; literal keys only; no variable named `t` where it is imported; run `node scripts/i18n.mjs template` after changing `en.json` (`make lint` runs the check). Plain language. *Scan* and *covers*, not *index* and *keyframes*; KB/MB/GB; relative dates; sentence case. Never show `127.0.0.1`, a port or an internal id. Every empty or error state says what happened and offers the one action that fixes it. Read `docs/DESIGN.md` before adding a screen, a button or a setting.
 - **Settings**: a new `config.json` key goes in `internal/config` and the README's configuration table (and `config.example.json` if it belongs there). Keep unknown keys intact.
 - **Docs**: user-facing changes go in `README.md`, developer-facing ones in `CONTRIBUTING.md`.
 - **Versions**: never edit `VERSION`, `cmd/medialib/winres/versioninfo.json`, `cmd/medialib/resource_windows_*.syso` or the installer's `AppVersion` by hand; the release workflow sets them with `scripts/set-version.sh`.

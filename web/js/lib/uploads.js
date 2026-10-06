@@ -5,6 +5,7 @@ import { icon } from './icons.js';
 import { s3Path, upload } from './api.js';
 import { bytes, leaf } from './fmt.js';
 import { emit } from './state.js';
+import { t } from './i18n.js';
 
 const MAX_PARALLEL = 3;
 let seq = 0;
@@ -43,7 +44,7 @@ async function start(it) {
     emit('uploaded', { conn: it.conn, bucket: it.bucket, key: it.key });
   } catch (e) {
     if (e.name === 'AbortError') it.state = 'canceled';
-    else if (/already exists/.test(e.message)) { it.state = 'skipped'; it.error = 'Already exists'; }
+    else if (/already exists/.test(e.message)) { it.state = 'skipped'; it.error = t('upload.alreadyExists'); }
     else { it.state = 'error'; it.error = e.message; }
   }
   it.ctrl = null;
@@ -66,14 +67,14 @@ let hideTimer = null;
 const paint = raf(() => {
   clearTimeout(hideTimer);
   if (!items.length) { panel?.remove(); panel = null; return; }
-  if (!panel) panel = document.body.appendChild(h('aside.uploads', { 'aria-label': 'Uploads' }));
+  if (!panel) panel = document.body.appendChild(h('aside.uploads', { 'aria-label': t('upload.uploads') }));
   const total = items.reduce((a, i) => a + i.size, 0), done = items.reduce((a, i) => a + i.loaded, 0);
   const live = pending().length, failed = items.filter(i => i.state === 'error').length;
   const pct = total ? Math.floor(done / total * 100) : 100;
-  const title = live ? `Uploading ${live} file${live === 1 ? '' : 's'} · ${pct}%` : failed ? `${failed} upload${failed === 1 ? '' : 's'} failed` : 'Uploads finished';
+  const title = live ? t('upload.uploadingFiles', { count: live, percent: pct }) : failed ? t('upload.failed', { count: failed }) : t('upload.finished');
   const head = h('div.up-head', h('div.up-title', live ? h('div.spinner') : icon(failed ? 'alert' : 'check2', 'sm'), title),
-    h('button.icon-btn.small', { type: 'button', 'aria-label': collapsed ? 'Expand' : 'Collapse', onclick: () => { collapsed = !collapsed; paint(); } }, icon(collapsed ? 'chevron-up' : 'chevron-down')),
-    h('button.icon-btn.small', { type: 'button', 'aria-label': live ? 'Cancel all and close' : 'Close', onclick: () => { for (const i of pending()) cancel(i); clearFinished(); } }, icon('x')));
+    h('button.icon-btn.small', { type: 'button', 'aria-label': collapsed ? t('upload.expand') : t('upload.collapse'), onclick: () => { collapsed = !collapsed; paint(); } }, icon(collapsed ? 'chevron-up' : 'chevron-down')),
+    h('button.icon-btn.small', { type: 'button', 'aria-label': live ? t('upload.cancelAllAndClose') : t('common.close'), onclick: () => { for (const i of pending()) cancel(i); clearFinished(); } }, icon('x')));
   const overall = live ? h('div.meter', h('i', { style: { width: pct + '%' } })) : null;
   const list = h('ul.up-list', { hidden: collapsed }, items.slice(-60).reverse().map(row));
   fill(panel, head, overall, list);
@@ -83,12 +84,12 @@ const paint = raf(() => {
 
 function row(it) {
   const p = it.size ? Math.floor(it.loaded / it.size * 100) : 100;
-  const status = { queued: 'Waiting', uploading: `${p}%`, done: 'Done', error: it.error, skipped: 'Already exists, skipped', canceled: 'Cancelled' }[it.state];
+  const status = { queued: t('upload.waiting'), uploading: `${p}%`, done: t('common.done'), error: it.error, skipped: t('upload.skipped'), canceled: t('upload.cancelled') }[it.state];
   return h('li.up-row', { class: it.state },
     h('div.up-main', h('div.up-name', { title: it.key }, leaf(it.key)), h('div.up-sub', `${bytes(it.size)} · ${status}`),
       it.state === 'uploading' ? h('div.meter', h('i', { style: { width: p + '%' } })) : null),
-    it.state === 'queued' || it.state === 'uploading' ? h('button.icon-btn.small', { type: 'button', 'aria-label': 'Cancel', onclick: () => cancel(it) }, icon('x'))
-      : it.state === 'error' || it.state === 'canceled' ? h('button.icon-btn.small', { type: 'button', 'aria-label': 'Retry', onclick: () => retry(it) }, icon('refresh')) : null);
+    it.state === 'queued' || it.state === 'uploading' ? h('button.icon-btn.small', { type: 'button', 'aria-label': t('common.cancel'), onclick: () => cancel(it) }, icon('x'))
+      : it.state === 'error' || it.state === 'canceled' ? h('button.icon-btn.small', { type: 'button', 'aria-label': t('common.retry'), onclick: () => retry(it) }, icon('refresh')) : null);
 }
 
 // ---------------------------------------------------------------- reading dropped files and folders

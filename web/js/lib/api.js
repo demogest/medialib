@@ -1,5 +1,7 @@
 // JSON API client. Every change carries X-Medialib: the server refuses changes without it, which web pages
 // on other sites cannot add (it would need a CORS preflight the server never answers).
+import { t } from './i18n.js';
+
 export class ApiError extends Error {
   constructor(message, { status = 0, code = '' } = {}) {
     super(message);
@@ -20,10 +22,10 @@ export async function api(path, { method = 'GET', body, signal, headers = {} } =
     r = await fetch(path, init);
   } catch (e) {
     if (e.name === 'AbortError') throw e;
-    throw new ApiError('Cannot reach the medialib server. Is it still running?');
+    throw new ApiError(t('api.unreachable'));
   }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new ApiError(j.error || r.statusText || 'Request failed', { status: r.status, code: j.code || '' });
+  if (!r.ok) throw new ApiError(j.error || r.statusText || t('api.requestFailed'), { status: r.status, code: j.code || '' });
   return j;
 }
 export const get = (path, opts) => api(path, opts);
@@ -43,9 +45,9 @@ export function upload(url, file, { onProgress, signal } = {}) {
       let j = {};
       try { j = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
       if (xhr.status >= 200 && xhr.status < 300) resolve(j);
-      else reject(new ApiError(j.error || xhr.statusText || 'Upload failed', { status: xhr.status, code: j.code || '' }));
+      else reject(new ApiError(j.error || xhr.statusText || t('api.uploadFailed'), { status: xhr.status, code: j.code || '' }));
     };
-    xhr.onerror = () => reject(new ApiError('Upload failed: the connection to medialib dropped.'));
+    xhr.onerror = () => reject(new ApiError(t('api.uploadDropped')));
     xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
     if (signal) {
       if (signal.aborted) return reject(new DOMException('Aborted', 'AbortError'));

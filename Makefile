@@ -39,12 +39,13 @@ vet:
 	go vet ./...
 
 # What CI checks besides the tests: Go formatting, that every script of the UI (no build step) and the shell scripts
-# at least parse, and that VERSION (the last release, see CONTRIBUTING.md) is a version. The UI check needs Node 22 or
-# later (module syntax is detected by itself).
+# at least parse, that the translations match the code (scripts/i18n.mjs), and that VERSION (the last release, see
+# CONTRIBUTING.md) is a version. The UI checks need Node 22 or later (module syntax is detected by itself).
 lint:
 	@test -z "$$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
 	@find web -name '*.js' -print0 | xargs -0 -n1 node --check
 	@for f in scripts/*.sh; do sh -n "$$f"; done
+	@node scripts/i18n.mjs check
 	@grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+' VERSION || { echo "VERSION must be a version like 3.3.0"; exit 1; }
 	@echo lint ok
 

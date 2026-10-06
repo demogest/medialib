@@ -1,6 +1,8 @@
 // Formatting helpers.
+import { lang, t } from './i18n.js';
+
 export const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-export const num = n => (n ?? 0).toLocaleString('en-US');
+export const num = n => (n ?? 0).toLocaleString(lang);
 const UNITS = ['KB', 'MB', 'GB', 'TB', 'PB']; // 1024-based, as file managers count
 export const bytes = n => {
   n = n || 0;
@@ -16,9 +18,9 @@ export const clock = s => {
   return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
 };
 export const span = s => {
-  if (s > 0 && s < 59.5) return `${Math.round(s)} s`;
+  if (s > 0 && s < 59.5) return t('time.seconds', { n: Math.round(s) });
   const h = Math.floor(s / 3600), m = Math.round(s % 3600 / 60);
-  return h ? `${h} h ${m} min` : `${m} min`;
+  return h ? t('time.hoursMinutes', { h, m }) : t('time.minutes', { m });
 };
 export const resLabel = (w, h) => {
   if (!w || !h) return '';
@@ -37,16 +39,15 @@ export function when(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 export function ago(iso) {
-  const t = typeof iso === 'number' ? iso * 1000 : Date.parse(iso);
-  if (isNaN(t)) return '';
-  const s = Math.max(0, (Date.now() - t) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return Math.floor(s / 60) + ' min ago';
-  if (s < 86400) return Math.floor(s / 3600) + ' h ago';
-  if (s < 86400 * 30) return Math.floor(s / 86400) + ' d ago';
+  const at = typeof iso === 'number' ? iso * 1000 : Date.parse(iso);
+  if (isNaN(at)) return '';
+  const s = Math.max(0, (Date.now() - at) / 1000);
+  if (s < 60) return t('time.justNow');
+  if (s < 3600) return t('time.minAgo', { n: Math.floor(s / 60) });
+  if (s < 86400) return t('time.hoursAgo', { n: Math.floor(s / 3600) });
+  if (s < 86400 * 30) return t('time.daysAgo', { n: Math.floor(s / 86400) });
   return when(iso).slice(0, 10);
 }
-export const plural = (n, one, many = one + 's') => `${num(n)} ${n === 1 ? one : many}`;
 
 // What kind of thing a file is, from its name. Drives icons and which preview opens.
 const KINDS = {

@@ -1,6 +1,7 @@
 // UI kit: toasts, modal dialogs, confirm/prompt, popup menus.
 import { h, $ } from './dom.js';
 import { icon } from './icons.js';
+import { t } from './i18n.js';
 
 /** Where floating things go: an open modal dialog lives in the browser's top layer, so anything appended to <body> would hide behind it. */
 const topHost = () => [...document.querySelectorAll('dialog[open]')].pop() || document.body;
@@ -16,7 +17,7 @@ export function toast(message, { kind = 'info', action, ms } = {}) {
   setTimeout(() => el.remove(), ms ?? (kind === 'error' ? 6500 : 3000));
   return el;
 }
-export const toastError = (message, e) => toast(e ? `${message}: ${e.message || e}` : message, { kind: 'error' });
+export const toastError = (message, e) => toast(e ? t('ui.errorReason', { message, reason: e.message || e }) : message, { kind: 'error' });
 
 // ---------------------------------------------------------------- modal
 /** modal({ title, body, actions: [{ label, primary, danger, value, keepOpen, onClick }], size }) -> { el, close(value), closed: Promise }. */
@@ -25,7 +26,7 @@ export function modal({ title, body, actions = [], size = '', onClose, dismissib
   const closed = new Promise(r => { resolve = r; });
   const foot = actions.length ? h('div.dlg-foot') : null;
   const dlg = h('dialog', { class: size, 'aria-label': title },
-    h('div.dlg-head', h('h2', title), dismissible ? h('button.icon-btn', { type: 'button', 'aria-label': 'Close', onclick: () => close(undefined) }, icon('x')) : null),
+    h('div.dlg-head', h('h2', title), dismissible ? h('button.icon-btn', { type: 'button', 'aria-label': t('common.close'), onclick: () => close(undefined) }, icon('x')) : null),
     h('div.dlg-body', body),
     foot);
   const api = { el: dlg, body: $('.dlg-body', dlg), foot, close, closed, setBusy };
@@ -62,7 +63,7 @@ export function modal({ title, body, actions = [], size = '', onClose, dismissib
   return api;
 }
 
-export function confirmDialog({ title, message, detail, confirm = 'OK', danger = false, cancel = 'Cancel' }) {
+export function confirmDialog({ title, message, detail, confirm = t('common.ok'), danger = false, cancel = t('common.cancel') }) {
   const m = modal({
     title, size: 'narrow',
     body: [h('p', message), detail ? h('p.muted', detail) : null],
@@ -72,7 +73,7 @@ export function confirmDialog({ title, message, detail, confirm = 'OK', danger =
 }
 
 /** Ask for one line of text. validate(value) may return an error message. Resolves to the text, or null when cancelled. */
-export function promptDialog({ title, label, value = '', placeholder = '', confirm = 'OK', hint, validate, mono = false }) {
+export function promptDialog({ title, label, value = '', placeholder = '', confirm = t('common.ok'), hint, validate, mono = false }) {
   const input = h('input.input', { type: 'text', value, placeholder, autocomplete: 'off', spellcheck: 'false', class: mono ? 'mono' : '' });
   const error = h('p.form-error', { hidden: true });
   const submit = api => {
@@ -85,7 +86,7 @@ export function promptDialog({ title, label, value = '', placeholder = '', confi
   const m = modal({
     title, size: 'narrow',
     body: h('div', error, h('div.field', label ? h('label', label) : null, input, hint ? h('p.hint', hint) : null)),
-    actions: [{ label: 'Cancel', value: null }, { label: confirm, primary: true, keepOpen: true, onClick: submit }],
+    actions: [{ label: t('common.cancel'), value: null }, { label: confirm, primary: true, keepOpen: true, onClick: submit }],
   });
   input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(m); } });
   const dot = value.lastIndexOf('.');
