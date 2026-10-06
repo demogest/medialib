@@ -193,6 +193,7 @@ func fetchRange(url string, start, end int64) ([]byte, error) {
 
 // LocalSource lists a folder tree.
 type LocalSource struct {
+	artSet
 	root     string
 	warnings []string
 	subs     []string
@@ -206,6 +207,7 @@ func (s *LocalSource) List() ([]Item, error) {
 		return nil, fmt.Errorf("Folder not reachable: %s", s.root)
 	}
 	s.warnings, s.subs = nil, nil
+	s.reset()
 	var items []Item
 	type frame struct{ folder, rel string }
 	stack := []frame{{s.root, ""}}
@@ -248,6 +250,8 @@ func (s *LocalSource) List() ([]Item, error) {
 			if kind == "" {
 				if IsSubtitle(e.Name()) {
 					s.subs = append(s.subs, rel)
+				} else {
+					s.add(cur.rel, e.Name(), rel)
 				}
 				continue
 			}
@@ -287,6 +291,7 @@ func (s *LocalSource) Reader(it Item) (Reader, error) {
 // S3Source reads a bucket (or a folder of one) straight through the S3 API: no rclone process, presigned URLs
 // minted locally.
 type S3Source struct {
+	artSet
 	client *s3.Client
 	lib    config.Library
 	subs   []string
@@ -297,6 +302,7 @@ func (s *S3Source) Subtitles() []string { return s.subs }
 func (s *S3Source) List() ([]Item, error) {
 	var items []Item
 	s.subs = nil
+	s.reset()
 	err := s.client.EachObject(s.lib.Bucket, s.lib.Prefix, "", func(o s3.Object) error {
 		if strings.HasSuffix(o.Key, "/") {
 			return nil
@@ -311,6 +317,8 @@ func (s *S3Source) List() ([]Item, error) {
 			items = append(items, NewItem(o.Key, name, dir, kind, o.Size, o.MTime))
 		} else if IsSubtitle(name) {
 			s.subs = append(s.subs, o.Key)
+		} else {
+			s.add(relDir(o.Key[len(s.lib.Prefix):]), name, o.Key)
 		}
 		return nil
 	})
@@ -327,6 +335,7 @@ func (s *S3Source) Reader(it Item) (Reader, error) {
 
 // RcloneSource is the older way: an rclone remote.
 type RcloneSource struct {
+	artSet
 	tools Tools
 	lib   config.Library
 	subs  []string
@@ -364,10 +373,12 @@ func (s *RcloneSource) List() ([]Item, error) {
 	}
 	var items []Item
 	s.subs = nil
+	s.reset()
 	for _, r := range rows {
 		if IsSubtitle(r.Name) {
 			s.subs = append(s.subs, s.lib.Prefix+r.Path)
 		}
+		s.add(relDir(r.Path), r.Name, s.lib.Prefix+r.Path)
 		if kind := MediaKind(r.Name); kind != "" {
 			dir := ""
 			if i := strings.LastIndex(r.Path, "/"); i >= 0 {

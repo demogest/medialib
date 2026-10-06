@@ -59,6 +59,9 @@ Every release lists its files and has a `SHA256SUMS` to check them against (`sha
 
 **Library**
 - Folders as cards with their own covers, or every video grouped by folder (*All videos*); a folder tree; sort by name, date, size or length. **Play all**, **Shuffle**, or save a folder as a playlist.
+- A folder with its own picture (`poster.jpg`, `folder.jpg`, `cover.jpg` or `fanart.jpg`; also `.jpeg`, `.png` and `.webp`, as Kodi, Jellyfin and Plex name them) shows it as its card; other folders show a mosaic of their newest covers.
+- **Pick several videos** with `Ctrl`-click (`⌘`-click on a Mac), `Shift`-click for a run of them, the check on a cover, or right-click → **Select**; `Ctrl A` picks everything shown and `Esc` lets go. The picks stay as you move between folders, and a bar plays them, shuffles them or makes a playlist of them.
+- **⋯ → Find duplicates…** lists the files that have copies of the same size and length anywhere in the library, and how much space the extra copies take. Nothing is deleted: open the folder (or Storage, for a bucket) to remove the ones you don't need.
 - Five real keyframes per video; hover a cover to scrub through them. medialib reads an MP4's own sample index and fetches only the bytes of the chosen keyframes (about 1 to 4 MB per video, even over the network). H.264, HEVC and AV1; other formats fall back to ffmpeg. Scans are incremental and use every core.
 - A library can be a local folder, a NAS share, or a folder in a bucket, read straight through the S3 API.
 - Plays in mpv, mpv.net, VLC, PotPlayer, MPC-HC, MPC-BE, IINA, SMPlayer, Celluloid, Haruna or the system default, whichever are installed, or any other you add in Settings.
@@ -72,6 +75,7 @@ Every release lists its files and has a `SHA256SUMS` to check them against (`sha
 - Fuzzy: letters in order (`hldy`) and a slip of the keys (`holidya`) still find the file.
 - **Filters** narrow the results, or list files on their own: `dur>1h`, `dur<20m` (a bare number is minutes), `size<2g`, `size>500mb` (a bare number is megabytes), `date>=2024-05`, `date=2024`, `res>=1080`, `res>=4k`, with `<`, `<=`, `>`, `>=` or `=`.
 - Files are searchable as soon as they are listed, before their covers are made. Results are ranked by relevance; in `Ctrl K`, `Enter` plays and `Ctrl Enter` shows the file in its folder.
+- The star in a library's search box saves the search (`dur>1h res>=4k`, say) as a chip above the covers, one click to run again in any library. Saved searches belong to the browser they were saved in.
 
 **Storage** (once a store is connected)
 - Connect to **RustFS, MinIO, Amazon S3, Cloudflare R2, Backblaze B2, Wasabi, Alibaba OSS, Tencent COS, DigitalOcean Spaces, Google Cloud Storage** (interoperability mode) or anything else that speaks S3. Presets, a connection test, and one-click import of the credentials you already have: rclone remotes, `~/.aws` profiles and `AWS_*` variables.

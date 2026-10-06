@@ -66,6 +66,7 @@ export async function mount(root, parts) {
     lib: null, info: null, version: null, items: [], byId: new Map(), scope: '', q: '', sort: store.get('sort', 'name'),
     tree: null, nodes: new Map(), shown: [], hidden: defaultHidden(), visibleIds: [], player: null,
     match: null, rank: null, ranked: true, sortAuto: true, pendingReveal: null,
+    sel: new Set(), anchor: null, // the files picked with Ctrl or Shift, and the last one clicked (Shift picks from it)
   };
   try { const saved = store.get('hiddenTypes', null); if (saved) S.hidden = new Set(JSON.parse(saved)); } catch { /* keep the default */ }
 
@@ -74,6 +75,8 @@ export async function mount(root, parts) {
   // "Film.en.srt" next to "Film.mkv" reads "en (SRT)"; "Film.srt" just "SRT".
   const subLabel = (it, name) => { const mid = name.slice(stem(it.name).length + 1, name.lastIndexOf('.')); const ext = extOf(name).toUpperCase(); return mid ? `${mid} (${ext})` : ext; };
   const mediaUrl = it => `${location.origin}/media/${S.lib}/${it.id}/${encodeURIComponent(it.name)}`;
+  // A folder's own picture (poster.jpg, folder.jpg), when it has one. The name in the address changes it when the file does.
+  const artUrl = dir => S.info?.art?.[dir] != null ? `/art/${S.lib}?dir=${encodeURIComponent(dir)}&n=${encodeURIComponent(S.info.art[dir])}` : '';
 
   // ---------------------------------------------------------------- skeleton
   const libBtn = h('button.btn.lib-switch', { type: 'button', 'aria-haspopup': 'menu', onclick: e => openSwitcher(e.currentTarget) });
@@ -82,6 +85,8 @@ export async function mount(root, parts) {
   const sortSel = h('select', { 'aria-label': 'Sort' }, [['rel', 'Best match'], ['name', 'Name'], ['new', 'Newest'], ['size', 'Largest'], ['dur', 'Longest']].map(([v, t]) => h('option', { value: v }, t)));
   if (S.sort === 'rel') S.sort = 'name'; // "Best match" only means something while searching
   sortSel.value = S.sort;
+  const saveBtn = h('button.icon-btn.small.save-search', { type: 'button', hidden: true, onclick: () => toggleSaved() }, icon('star', 'sm'));
+  const savedRow = h('div.saved-searches', { hidden: true, role: 'list', 'aria-label': 'Saved searches' });
   const typesBtn = h('button.btn', { type: 'button', 'aria-haspopup': 'true', onclick: e => openTypes(e.currentTarget) }, icon('filter', 'sm'), h('span.types-label', 'Types'));
   const optBtn = h('button.btn.icon-only', { type: 'button', 'aria-label': 'View options', title: 'Player and cover size', onclick: e => openOptions(e.currentTarget) }, icon('sliders', 'sm'));
   const ringText = h('span.ring-text');
@@ -107,10 +112,19 @@ export async function mount(root, parts) {
   const moreBtn = h('button.btn.icon-only', { type: 'button', 'aria-label': 'More', title: 'Playlist, scan, library settings', 'aria-haspopup': 'menu', onclick: e => openMore(e.currentTarget) }, icon('more'));
   const groups = h('div#groups');
   const empty = h('p.empty', { hidden: true }, 'Nothing here matches.');
-  const main = h('section.lib-main', banner, warnings,
-    h('div.scopebar', h('div.scope-text', crumbs, stats), h('div.actions', playAll, shuffleAll, moreBtn)), groups, empty);
+  const selText = h('div.sel-text');
+  const selBar = h('div.selbar', { hidden: true, role: 'toolbar', 'aria-label': 'Selected videos' },
+    h('button.icon-btn.small', { type: 'button', 'aria-label': 'Clear the selection', title: 'Clear the selection (Esc)', onclick: () => clearSelection() }, icon('x', 'sm')),
+    selText,
+    h('div.sel-actions',
+      h('button.btn.small', { type: 'button', title: 'Select every video shown (Ctrl A)', onclick: () => selectAll() }, 'Select all'),
+      h('button.btn.small.icon-only', { type: 'button', 'aria-label': 'Playlist of the selection', title: 'Playlist of the selection', onclick: () => selectionPlaylist() }, icon(onThisComputer() ? 'download' : 'link', 'sm')),
+      h('button.btn.small', { type: 'button', onclick: () => play(shuffled(selectedIds())) }, icon('shuffle', 'sm'), 'Shuffle'),
+      h('button.btn.small.primary', { type: 'button', onclick: () => play(selectedIds()) }, icon('play', 'sm'), 'Play')));
+  const main = h('section.lib-main', savedRow, banner, warnings,
+    h('div.scopebar', h('div.scope-text', crumbs, stats), h('div.actions', playAll, shuffleAll, moreBtn)), groups, empty, selBar);
 
-  const bar = h('header.lib-bar', navToggle, libBtn, h('div.search', icon('search', 'sm'), qInput), h('div.bar-spacer'), sortSel, typesBtn, optBtn, ring);
+  const bar = h('header.lib-bar', navToggle, libBtn, h('div.search', icon('search', 'sm'), qInput, saveBtn), h('div.bar-spacer'), sortSel, typesBtn, optBtn, ring);
   const view = h('div.lib-view', bar, h('div.lib-body', nav, main), scrim);
   root.append(view);
   if (store.get('treeClosed', '1') === '1') { view.classList.add('tree-closed'); navToggle.setAttribute('aria-expanded', 'false'); }
@@ -284,7 +298,7 @@ export async function mount(root, parts) {
   const PLAY_HINT = '<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="23" fill="rgb(0 0 0 / .55)"/><path d="M19 15v18l15-9z" fill="#fff"/></svg>';
   function card(entry) {
     const it = entry.it;
-    const art = h('article.card', { dataset: { id: it.id } });
+    const art = h('article.card', { dataset: { id: it.id }, class: S.sel.has(it.id) ? 'selected' : '' });
     const cover = h('button.cover', { type: 'button', 'aria-label': 'Play ' + it.name });
     const dated = (S.info.type === 'local' ? 'modified ' : 'uploaded ') + it.mtime.slice(0, 10);
     cover.title = [it.name, it.dir, [resLabel(it.width, it.height), it.codec, it.fps && it.fps + ' fps'].filter(Boolean).join(' · '), bytes(it.size) + ' · ' + dated].filter(Boolean).join('\n');
@@ -303,7 +317,8 @@ export async function mount(root, parts) {
     const title = h('div.title', { title: it.name + '\nClick for details' }, stem(it.name));
     const sub = h('div.sub', { title: `${bytes(it.size)} · ${when(it.mtime)}` }, entry.sub || `Added ${ago(addedAt(it))}`);
     const cp = h('button.copy', { type: 'button', title: linkLabel(), 'aria-label': `${linkLabel()} of ${it.name}` }, icon('copy', 'sm'));
-    art.append(cover, h('div.meta', title, cp, sub));
+    const pick = h('button.pick', { type: 'button', 'aria-label': 'Select ' + it.name, 'aria-pressed': String(S.sel.has(it.id)), title: 'Select (Ctrl-click; Shift-click picks a run)' }, icon('check', 'sm'));
+    art.append(cover, pick, h('div.meta', title, cp, sub));
     return art;
   }
 
@@ -501,14 +516,18 @@ export async function mount(root, parts) {
       if (pos < 4) { covers.splice(pos, 0, e.it); covers.length = Math.min(covers.length, 4); }
     }
     const ids = () => g.entries.map(e => e.it.id);
+    const mosaic = () => h('div.tile-mosaic', { class: `n${covers.length}` }, covers.length ? covers.map(it => h('img', { src: thumb(it, it.cover ?? 0), alt: '', loading: 'lazy', decoding: 'async' }))
+      : h('div.ph', icon('folder', 'lg')));
+    const own = artUrl(path);
+    // The folder's own poster when it has one; its newest covers otherwise, and if the picture cannot be loaded.
+    const tile = own ? h('div.tile-mosaic.art', h('img', { src: own, alt: '', loading: 'lazy', decoding: 'async', onerror: () => tile.replaceWith(mosaic()) })) : mosaic();
     return h('button.fcard', { type: 'button', title: path, onclick: () => go(path),
       oncontextmenu: e => contextMenu(e, [
         { label: 'Open', icon: 'folder', onClick: () => go(path) },
         { label: 'Play all', icon: 'play', onClick: () => play(ids()) },
         { label: 'Shuffle', icon: 'shuffle', onClick: () => play(shuffled(ids())) },
       ]) },
-    h('div.tile-mosaic', { class: `n${covers.length}` }, covers.length ? covers.map(it => h('img', { src: thumb(it, it.cover ?? 0), alt: '', loading: 'lazy', decoding: 'async' }))
-      : h('div.ph', icon('folder', 'lg'))),
+    tile,
     h('div.tile-meta', h('span.tile-name', icon('folder', 'sm'), g.key), h('span.tile-status', `${plural(g.entries.length, 'video')}${g.dur ? ' · ' + span(g.dur) : ''}`)));
   }
   function openMore(anchor) {
@@ -516,6 +535,7 @@ export async function mount(root, parts) {
       onThisComputer()
         ? { label: 'Save as playlist…', icon: 'download', onClick: () => savePlaylist() }
         : { label: 'Copy playlist link', icon: 'link', onClick: () => copy(`${location.origin}/api/playlist.m3u8?${plQuery()}`, 'Playlist link') },
+      { label: 'Find duplicates…', icon: 'layers', onClick: () => showDuplicates() },
       { sep: true },
       { label: 'Scan for new videos', icon: 'refresh', onClick: () => startIndex(S.lib) },
       { label: 'Library settings…', icon: 'sliders', onClick: () => manageLibraries() },
@@ -639,6 +659,7 @@ export async function mount(root, parts) {
     S.nodes = nodes;
     renderTree();
     if (keepView && nodes.has(S.scope)) { markActive(S.scope); render(); } else applyScope(scopePath);
+    paintSelection();
   }
 
   const paintSwitch = () => {
@@ -648,11 +669,13 @@ export async function mount(root, parts) {
 
   async function switchLibrary(id, path = '') {
     S.lib = id;
+    S.sel.clear(); S.anchor = null; paintSelection();
     S.q = '';
     S.match = S.rank = null;
     S.sortAuto = true;
     searchSeq++;
     qInput.value = '';
+    paintSaved();
     S.scope = path;
     post('/api/libraries/active', { id }).catch(() => {});
     groups.classList.add('busy');
@@ -892,6 +915,7 @@ export async function mount(root, parts) {
       // now if this view already shows that folder, otherwise when the pending update has drawn it.
       const { lib, dir, id } = a.arg;
       qInput.value = '';
+      paintSaved();
       S.q = ''; S.match = S.rank = null; S.sortAuto = true; searchSeq++;
       S.pendingReveal = id;
       if (S.lib === lib && S.scope === dir) { render(); consumeReveal(); }
@@ -914,6 +938,122 @@ export async function mount(root, parts) {
       else toast('Scan finished: every cover is up to date', { kind: 'ok' });
     }
   }));
+
+  // ---------------------------------------------------------------- selection
+  // Picked files stay picked from folder to folder, so a playlist can gather videos from all over the library.
+  const selectedIds = () => {
+    const shown = S.visibleIds.filter(id => S.sel.has(id));
+    const seen = new Set(shown);
+    return [...shown, ...[...S.sel].filter(id => !seen.has(id))];
+  };
+  function pickCard(id, range) {
+    if (range && S.anchor && S.anchor !== id) {
+      const a = S.visibleIds.indexOf(S.anchor), b = S.visibleIds.indexOf(id);
+      if (a >= 0 && b >= 0) { for (const x of S.visibleIds.slice(Math.min(a, b), Math.max(a, b) + 1)) S.sel.add(x); S.anchor = id; paintSelection(); return; }
+    }
+    if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id);
+    S.anchor = id;
+    paintSelection();
+  }
+  function selectAll() {
+    if (!S.visibleIds.length) return;
+    for (const id of S.visibleIds) S.sel.add(id);
+    paintSelection();
+  }
+  function clearSelection() { S.sel.clear(); S.anchor = null; paintSelection(); }
+  function paintSelection() {
+    for (const id of [...S.sel]) if (!S.byId.has(id)) S.sel.delete(id); // removed by a scan
+    for (const el of groups.querySelectorAll('.card')) {
+      const on = S.sel.has(el.dataset.id);
+      el.classList.toggle('selected', on);
+      el.querySelector('.pick')?.setAttribute('aria-pressed', String(on));
+    }
+    view.classList.toggle('selecting', S.sel.size > 0);
+    selBar.hidden = !S.sel.size;
+    if (!S.sel.size) return;
+    let dur = 0, size = 0;
+    for (const id of S.sel) { const it = S.byId.get(id); dur += it.duration || 0; size += it.size; }
+    selText.textContent = `${plural(S.sel.size, 'video')} selected · ${span(dur)} · ${bytes(size)}`;
+  }
+  async function selectionPlaylist() {
+    const ids = selectedIds().slice(0, 500), q = `lib=${encodeURIComponent(S.lib)}&ids=${ids.map(encodeURIComponent).join(',')}`;
+    if (!onThisComputer()) return copy(`${location.origin}/api/playlist.m3u8?${q}`, 'Playlist link');
+    try {
+      const j = await post(`/api/playlist/save?${q}`, {});
+      if (j.path) toast(`Saved ${j.count} ${j.count === 1 ? 'item' : 'items'} to ${j.path}` + (j.expires ? ' · its links work for 7 days' : ''), { kind: 'ok', ms: 6000 });
+    } catch (e) { toastError('Could not save the playlist', e); }
+  }
+
+  // ---------------------------------------------------------------- duplicates
+  // Copies of one file: the same size to the byte and, where both lengths are known, the same length. A file whose
+  // length is not known yet (no cover) goes with the copies of its size.
+  function duplicateSets() {
+    const bySize = new Map();
+    for (const it of S.items) if (it.size > 0) { const l = bySize.get(it.size); if (l) l.push(it); else bySize.set(it.size, [it]); }
+    const sets = [];
+    for (const list of bySize.values()) {
+      if (list.length < 2) continue;
+      const byLen = new Map(), unknown = [];
+      for (const it of list) {
+        if (!it.duration) { unknown.push(it); continue; }
+        const k = Math.round(it.duration);
+        const near = [k, k - 1, k + 1].find(x => byLen.has(x));
+        if (near != null) byLen.get(near).push(it); else byLen.set(k, [it]);
+      }
+      const groupsOf = [...byLen.values()].sort((a, b) => b.length - a.length);
+      if (groupsOf.length) groupsOf[0].push(...unknown); else groupsOf.push(unknown);
+      for (const g of groupsOf) if (g.length > 1) sets.push(g.sort((a, b) => addedAt(a).localeCompare(addedAt(b)) || collator.compare(a.key, b.key)));
+    }
+    return sets.sort((a, b) => b[0].size * (b.length - 1) - a[0].size * (a.length - 1));
+  }
+  function showDuplicates() {
+    const sets = duplicateSets();
+    const spare = sets.reduce((n, g) => n + g[0].size * (g.length - 1), 0);
+    const row = it => h('li.dup-row',
+      h('div.grow', h('div.dup-dir', it.dir || 'Top level'), h('div.dup-name.muted', it.name, ' · ', `added ${ago(addedAt(it))}`)),
+      h('div.fail-actions',
+        h('button.btn.small', { type: 'button', onclick: () => play([it.id]) }, 'Play'),
+        canReveal() ? h('button.btn.small', { type: 'button', onclick: () => showInFolder(it) }, revealLabel())
+          : S.info.type === 's3' ? h('button.btn.small', { type: 'button', onclick: () => { m.close(); navigate('storage', S.info.connection, S.info.bucket, ...it.key.split('/').slice(0, -1)); } }, 'Show in Storage') : null,
+        h('button.btn.small', { type: 'button', onclick: () => { m.close(); openLibraryAction('reveal', { lib: S.lib, dir: it.dir, id: it.id }); } }, 'Show in library')));
+    const body = sets.length
+      ? h('div', h('p.hint', `${plural(sets.length, 'file')} ${sets.length === 1 ? 'has' : 'have'} copies of the same size and length. Removing the extra copies would free ${bytes(spare)}. medialib does not delete anything: open the folder and remove the ones you do not need.`),
+        h('ul.dup-list', sets.slice(0, 300).map(g => h('li.dup-set',
+          h('div.dup-head', h('strong', stem(g[0].name)), h('span.muted', `${g.length} copies · ${bytes(g[0].size)} each` + (g.find(x => x.duration) ? ' · ' + clock(g.find(x => x.duration).duration) : ''))),
+          h('ul.dup-files', g.map(row))))))
+      : h('div.empty-state', icon('check2'), h('h3', 'No duplicates'), h('p', 'No two files in this library have the same size and length.'));
+    const m = modal({ title: 'Duplicates', size: 'wide', body, actions: [{ label: 'Close', primary: true, value: false }] });
+  }
+
+  // ---------------------------------------------------------------- saved searches
+  // Searches worth keeping (words, filters like dur>1h res>=2160, or both) as one-click chips above the covers. They
+  // belong to this browser, like the sort and the type filter, and work in every library.
+  const savedList = () => { const l = store.json('savedSearches', []); return Array.isArray(l) ? l.filter(x => typeof x === 'string') : []; };
+  function toggleSaved() {
+    const q = qInput.value.trim();
+    if (!q) return;
+    const list = savedList();
+    store.setJson('savedSearches', list.includes(q) ? list.filter(x => x !== q) : [...list, q].slice(-20));
+    if (!list.includes(q)) toast('Search saved. It is one click away above the covers', { kind: 'ok' });
+    paintSaved();
+  }
+  function useSaved(q) {
+    qInput.value = qInput.value.trim() === q ? '' : q;
+    paintSaved();
+    runSearch();
+  }
+  function paintSaved() {
+    const q = qInput.value.trim(), list = savedList();
+    saveBtn.hidden = !q;
+    const on = list.includes(q);
+    saveBtn.setAttribute('aria-pressed', String(on));
+    saveBtn.setAttribute('aria-label', on ? 'Remove this saved search' : 'Save this search');
+    saveBtn.title = on ? 'Remove this saved search' : 'Save this search';
+    savedRow.hidden = !list.length;
+    fill(savedRow, list.map(x => h('span.chip', { role: 'listitem', class: x === q ? 'on' : '' },
+      h('button.chip-label', { type: 'button', 'aria-pressed': String(x === q), title: x === q ? 'Clear this search' : 'Search for ' + x, onclick: () => useSaved(x) }, icon('search', 'sm'), x),
+      h('button.chip-x', { type: 'button', 'aria-label': 'Remove saved search ' + x, title: 'Remove', onclick: () => { store.setJson('savedSearches', savedList().filter(y => y !== x)); paintSaved(); } }, icon('x', 'sm')))));
+  }
 
   // ---------------------------------------------------------------- type filter
   let typesMenu = null;
@@ -1003,16 +1143,22 @@ export async function mount(root, parts) {
     const cardEl = e.target.closest('.card');
     if (!cardEl) return;
     const it = S.byId.get(cardEl.dataset.id);
-    if (e.target.closest('.cover')) play([it.id]);
-    else if (e.target.closest('.copy')) copyLink(it);
+    if (e.target.closest('.pick')) pickCard(it.id, e.shiftKey);
+    else if (e.target.closest('.cover')) {
+      // Ctrl (⌘ on a Mac) or Shift picks instead of playing, and so does any click once something is picked.
+      if (e.ctrlKey || e.metaKey || e.shiftKey || S.sel.size) pickCard(it.id, e.shiftKey);
+      else play([it.id]);
+    } else if (e.target.closest('.copy')) copyLink(it);
     else if (e.target.closest('.title')) showDetails(it);
   });
   groups.addEventListener('contextmenu', e => {
     const cardEl = e.target.closest('.card');
     if (!cardEl) return;
     const it = S.byId.get(cardEl.dataset.id);
+    const many = S.sel.has(it.id) && S.sel.size > 1;
     contextMenu(e, [
-      { label: 'Play', icon: 'play', onClick: () => play([it.id]) },
+      many ? { label: `Play ${S.sel.size} selected`, icon: 'play', onClick: () => play(selectedIds()) } : { label: 'Play', icon: 'play', onClick: () => play([it.id]) },
+      { label: S.sel.has(it.id) ? 'Deselect' : 'Select', icon: 'check', onClick: () => pickCard(it.id, false) },
       { label: 'Details…', icon: 'info', onClick: () => showDetails(it) },
       canReveal() ? { label: revealLabel(), icon: 'folder', onClick: () => showInFolder(it) } : null,
       { label: linkLabel(), icon: 'link', onClick: () => copyLink(it) },
@@ -1024,6 +1170,7 @@ export async function mount(root, parts) {
   groups.addEventListener('pointerleave', stopScrub);
 
   qInput.addEventListener('input', debounce(runSearch, 120));
+  qInput.addEventListener('input', () => paintSaved());
   sortSel.addEventListener('change', () => {
     S.sort = sortSel.value;
     S.sortAuto = false; // the person chose: stop switching to best match by itself
@@ -1032,11 +1179,16 @@ export async function mount(root, parts) {
   });
   scope.on(document, 'keydown', e => {
     if (e.key === '/' && !/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName) && !document.querySelector('dialog[open]')) { e.preventDefault(); qInput.focus(); }
-    if (e.key === 'Escape') navOpen(false);
+    if (e.key === 'Escape') { navOpen(false); if (S.sel.size && !document.querySelector('dialog[open]')) clearSelection(); }
+    if ((e.key === 'a' || e.key === 'A') && (e.ctrlKey || e.metaKey) && !/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName) && !document.querySelector('dialog[open]')) {
+      e.preventDefault();
+      selectAll();
+    }
   });
 
   // ---------------------------------------------------------------- start
   setSize(store.get('size', 'm'));
+  paintSaved();
   S.player = store.get('player', state.defaultPlayer);
   if (!state.players.some(p => p.id === S.player)) S.player = state.players[0]?.id;
   scope.add(on('libraries', paintSwitch));

@@ -164,6 +164,10 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 	if st, ok := source.(Subtitler); ok {
 		attachSubs(listed, st.Subtitles())
 	}
+	var art map[string]string
+	if ar, ok := source.(Arter); ok {
+		art = ar.FolderArt()
+	}
 	prevData, err := LoadLibrary(ix.Cfg, lib)
 	if err != nil {
 		return err
@@ -236,7 +240,7 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 		line += fmt.Sprintf("; %d that failed before are skipped (--retry tries them again)", skipped)
 	}
 	rep.Plan(len(todo), line)
-	if _, err := SaveLibrary(ix.Cfg, lib, recs, warnings); err != nil {
+	if _, err := saveLibrary(ix.Cfg, lib, recs, warnings, art); err != nil {
 		return err
 	}
 
@@ -303,7 +307,7 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 			errorsN++
 		}
 		if time.Since(saved) > every { // lets a running UI pick up new covers as they land
-			_, _ = SaveLibrary(ix.Cfg, lib, recs, warnings) // only a checkpoint: the next one, or the final save, will land
+			_, _ = saveLibrary(ix.Cfg, lib, recs, warnings, art) // only a checkpoint: the next one, or the final save, will land
 			saved = time.Now()
 		}
 		flag := "ERR " + res.rec.Error
@@ -321,7 +325,7 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 	if err := ctx.Err(); err != nil {
 		// Stop at once and keep what is recorded; never let workers grind on with nobody collecting results.
 		cancel()
-		_, _ = SaveLibrary(ix.Cfg, lib, recs, warnings)
+		_, _ = saveLibrary(ix.Cfg, lib, recs, warnings, art)
 		return err
 	}
 
@@ -341,7 +345,7 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 			}
 		}
 	}
-	if _, err := SaveLibrary(ix.Cfg, lib, recs, warnings); err != nil {
+	if _, err := saveLibrary(ix.Cfg, lib, recs, warnings, art); err != nil {
 		return err
 	}
 	rep.State("done", fmt.Sprintf("Done: %d indexed in %.0fs, %d errors, %s read by the MP4 fast path, %d stale thumbnails removed.",

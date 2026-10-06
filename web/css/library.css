@@ -215,3 +215,58 @@
   .scopebar .actions { margin-left: 0; width: 100%; }
   .scopebar .actions .btn.primary { flex: 1; justify-content: center; }
 }
+
+/* a folder's own picture (poster.jpg, folder.jpg) as its tile: posters are tall, so keep their top in view */
+.tile-mosaic.art img { object-position: center 22%; }
+
+/* picking several videos: a check on each cover, a bar of what to do with them */
+.pick {
+  position: absolute; top: 6px; left: 6px; z-index: 2; width: 26px; height: 26px; display: grid; place-items: center; padding: 0;
+  border: 2px solid rgb(255 255 255 / .9); border-radius: 50%; background: rgb(0 0 0 / .35); color: transparent;
+  opacity: 0; transition: opacity .12s, background .12s; box-shadow: 0 1px 4px rgb(0 0 0 / .35);
+}
+.pick .ic { width: 14px; height: 14px; stroke-width: 3; }
+.card:hover .pick, .pick:focus-visible, .selecting .pick { opacity: 1; }
+.card:hover .badge.tl, .selecting .badge.tl { opacity: 0; }
+.pick:hover { background: rgb(0 0 0 / .55); }
+.card.selected .pick { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.card.selected .cover { box-shadow: 0 0 0 3px var(--accent); }
+.card.selected .cover img { transform: scale(.94); border-radius: 8px; }
+.cover img { transition: transform .12s; }
+.selecting .cover .playhint { display: none; }
+.selbar {
+  position: sticky; bottom: 16px; z-index: 20; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  width: fit-content; max-width: 100%; margin: 16px auto 0; padding: 8px 10px 8px 8px;
+  border: 1px solid var(--rule-strong); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-lg);
+}
+.sel-text { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sel-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* duplicates */
+.dup-list, .dup-files { list-style: none; margin: 0; padding: 0; }
+.dup-list { max-height: 62vh; overflow-y: auto; margin-top: 8px; }
+.dup-set { padding: 12px 0; border-bottom: 1px solid var(--rule); }
+.dup-set:last-child { border-bottom: 0; }
+.dup-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 4px; overflow-wrap: anywhere; }
+.dup-head .muted { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.dup-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px 0 6px 12px; border-left: 2px solid var(--rule); }
+.dup-row .grow { flex: 1 1 240px; min-width: 0; }
+.dup-dir { overflow-wrap: anywhere; }
+.dup-name { font-size: 12.5px; overflow-wrap: anywhere; }
+
+/* saved searches: a row of chips above the covers, and a star in the search box */
+.save-search { position: absolute; right: 5px; }
+.save-search[aria-pressed="true"] { color: var(--accent); }
+.save-search[aria-pressed="true"] .ic { fill: currentColor; }
+.lib-bar .search:has(.save-search:not([hidden])) .input { padding-right: 36px; }
+.saved-searches { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 14px; }
+.chip { display: inline-flex; align-items: center; max-width: 100%; border-radius: 999px; background: var(--surface-2); color: var(--text-2); font-size: 13px; }
+.chip.on { background: var(--accent-soft); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
+.chip button { border: 0; background: none; color: inherit; }
+.chip-label { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 4px 5px 11px; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip-label .ic { flex: none; width: 13px; height: 13px; color: var(--muted); }
+.chip-x { display: grid; place-items: center; width: 24px; height: 24px; margin-right: 3px; border-radius: 50%; color: var(--muted) !important; }
+.chip-x:hover { background: var(--hover) !important; color: var(--text) !important; }
+.chip-x .ic { width: 12px; height: 12px; }
+.chip:hover { background: var(--hover); }
+@media (max-width: 860px) { .selbar { bottom: 10px; } .sel-text { white-space: normal; } }

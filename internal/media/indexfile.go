@@ -57,15 +57,16 @@ type diskItem struct {
 }
 
 type diskData struct {
-	Format   int        `json:"format"`
-	Library  string     `json:"library"`
-	Name     string     `json:"name"`
-	Type     string     `json:"type"`
-	Location string     `json:"location"`
-	Updated  string     `json:"updated"`
-	Warnings []string   `json:"warnings"`
-	Dirs     []string   `json:"dirs"`
-	Items    []diskItem `json:"items"`
+	Format   int               `json:"format"`
+	Library  string            `json:"library"`
+	Name     string            `json:"name"`
+	Type     string            `json:"type"`
+	Location string            `json:"location"`
+	Updated  string            `json:"updated"`
+	Warnings []string          `json:"warnings"`
+	Dirs     []string          `json:"dirs"`
+	Items    []diskItem        `json:"items"`
+	Art      map[string]string `json:"art,omitempty"`
 }
 
 func baseName(key string) string { return path.Base(strings.ReplaceAll(key, `\`, "/")) }
@@ -73,7 +74,7 @@ func baseName(key string) string { return path.Base(strings.ReplaceAll(key, `\`,
 // encodeData serializes an index in the compact, compressed form.
 func encodeData(d Data) ([]byte, error) {
 	dd := diskData{Format: formatV2, Library: d.Library, Name: d.Name, Type: d.Type, Location: d.Location, Updated: d.Updated,
-		Warnings: d.Warnings, Dirs: []string{}, Items: make([]diskItem, 0, len(d.Items))}
+		Warnings: d.Warnings, Dirs: []string{}, Items: make([]diskItem, 0, len(d.Items)), Art: d.Art}
 	dirIdx := map[string]int{}
 	for _, it := range d.Items {
 		di, ok := dirIdx[it.Dir]
@@ -152,7 +153,7 @@ func decodeData(raw []byte) (*Data, error) {
 		return &d, nil
 	}
 	d := &Data{Library: dd.Library, Name: dd.Name, Type: dd.Type, Location: dd.Location, Updated: dd.Updated, Warnings: dd.Warnings,
-		Items: make([]Item, len(dd.Items))}
+		Items: make([]Item, len(dd.Items)), Art: dd.Art}
 	for _, x := range dd.Items {
 		if x.Dir < 0 || x.Dir >= len(dd.Dirs) {
 			return nil, fmt.Errorf("item %q refers to folder %d of %d", x.Key, x.Dir, len(dd.Dirs))
