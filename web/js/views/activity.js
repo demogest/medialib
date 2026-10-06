@@ -1,10 +1,11 @@
-// Activity: copy / move / delete / size tasks and library indexing runs, with live progress.
+// Activity: copy / move / delete / size tasks and library scans, with live progress.
 import { h, fill } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { del, post } from '../lib/api.js';
 import { ago, bytes } from '../lib/fmt.js';
 import { navigate } from '../lib/router.js';
-import { on, pokeWatcher, running, state } from '../lib/state.js';
+import { store } from '../lib/store.js';
+import { on, pokeWatcher, requestLibraryAction, running, state } from '../lib/state.js';
 import { toastError } from '../lib/ui.js';
 import { t } from '../lib/i18n.js';
 
@@ -13,7 +14,12 @@ const STATE_LABEL = { running: t('activity.running'), done: t('common.done'), er
 
 export function mount(root) {
   const body = h('div');
-  const clear = h('button.btn', { type: 'button', onclick: async () => { await del('/api/tasks'); pokeWatcher(); } }, t('activity.clearFinished'));
+  // Finished scans are the server's last word on each library, so clearing them only hides them here, until the next scan.
+  const clear = h('button.btn', { type: 'button', onclick: async () => {
+    store.set('scansCleared', String(Date.now() / 1000));
+    try { await del('/api/tasks'); } catch (e) { toastError(t('activity.clearFailed'), e); }
+    pokeWatcher(); render();
+  } }, t('activity.clearFinished'));
   root.append(h('div.page', h('div.page-inner',
     h('div.page-head', h('div', h('h1', t('nav.activity')), h('p', t('activity.intro'))),
       h('div.actions', clear)),
@@ -21,10 +27,12 @@ export function mount(root) {
 
   const render = () => {
     const tasks = state.tasks;
-    const jobs = Object.entries(state.jobs).map(([id, j]) => ({ id, ...j, lib: state.libs.find(l => l.id === id) })).filter(j => j.lib);
+    const cleared = Number(store.get('scansCleared', '0')) || 0;
+    const jobs = Object.entries(state.jobs).map(([id, j]) => ({ id, ...j, lib: state.libs.find(l => l.id === id) }))
+      .filter(j => j.lib && (running(j) || !(j.finished <= cleared)));
     const active = [...tasks.filter(task => task.state === 'running').map(taskCard), ...jobs.filter(j => running(j)).map(jobCard)];
     const recent = [...tasks.filter(task => task.state !== 'running').map(taskCard), ...jobs.filter(j => !running(j)).map(jobCard)];
-    clear.disabled = !tasks.some(task => task.state !== 'running');
+    clear.disabled = !recent.length;
     fill(body,
       active.length ? [h('div.section-title', t('activity.inProgress')), h('div.act-list', active)] : null,
       recent.length ? [h('div.section-title', t('activity.recent')), h('div.act-list', recent)] : null,
@@ -40,7 +48,7 @@ function taskCard(task) {
   const pct = task.total ? Math.min(100, Math.round(task.done / task.total * 100)) : 0;
   const live = task.state === 'running';
   const cancel = live ? h('button.btn.small', { type: 'button', onclick: async () => { try { await post(`/api/tasks/${task.id}/cancel`); pokeWatcher(); } catch (e) { toastError(t('activity.cancelFailed'), e); } } }, icon('stop', 'sm'), t('common.cancel'))
-    : h('button.icon-btn.small', { type: 'button', 'aria-label': t('common.dismiss'), onclick: async () => { await del(`/api/tasks/${task.id}`); pokeWatcher(); } }, icon('x'));
+    : h('button.icon-btn.small', { type: 'button', 'aria-label': t('common.dismiss'), onclick: async () => { try { await del(`/api/tasks/${task.id}`); } catch (e) { toastError(t('activity.clearFailed'), e); } pokeWatcher(); } }, icon('x'));
   const detail = task.kind === 'size' && task.result ? t('activity.sizeResult', { count: task.result.objects, size: bytes(task.result.bytes) })
     : task.total ? (task.bytes ? t('activity.progressBytes', { done: task.done, total: task.total, size: bytes(task.bytes) }) : t('activity.progress', { done: task.done, total: task.total })) : task.line;
   return h('article.act', { class: task.state },
@@ -63,6 +71,10 @@ function jobCard(j) {
     h('div.act-main', h('div.act-title', t('activity.scanLibrary', { name: j.lib.name })),
       live ? h('div.meter', { class: j.state === 'indexing' && j.total ? '' : 'indeterminate' }, h('i', { style: { width: pct + '%' } })) : null,
       h('div.act-sub', h('span.tag', { class: j.state === 'done' ? 'ok' : j.state === 'error' ? 'danger' : live ? 'accent' : '' }, label),
-        h('span.act-line', j.errors ? t('activity.errors', { count: j.errors }) + ' · ' : '', live ? '' : (j.finished ? ago(j.finished) + ' · ' : ''), (j.line || '').slice(0, 160)))),
+        // What the scan says as it goes is for the log; here: when it ended, what failed, and why a scan stopped.
+        h('span.act-line', [j.errors ? t('activity.errors', { count: j.errors }) : '', live || !j.finished ? '' : ago(j.finished), j.state === 'error' ? (j.line || '').slice(0, 160) : '']
+          .filter(Boolean).join(' · '))),
+      ),
+    j.errors && !live ? h('button.btn.small', { type: 'button', onclick: () => { navigate('library', j.lib.id); requestLibraryAction('failed', { lib: j.lib.id }); } }, t('activity.seeWhich')) : null,
     h('button.btn.small', { type: 'button', onclick: () => navigate('library', j.lib.id) }, t('common.open')));
 }

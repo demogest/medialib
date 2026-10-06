@@ -2,21 +2,22 @@
 import { h, fill, $, $$, Scope, debounce } from '../lib/dom.js';
 import { icon, kindIcon } from '../lib/icons.js';
 import { get, post, put } from '../lib/api.js';
-import { ago, bytes, clock, collator, extOf, leaf, num, resLabel, span, stem, when } from '../lib/fmt.js';
+import { ago, bytes, clock, collator, extOf, keys, leaf, modKey, num, resLabel, span, stem, when } from '../lib/fmt.js';
 import { t } from '../lib/i18n.js';
 import { href, navigate, replace } from '../lib/router.js';
 import { loadLibraries, loadConnections, on, pokeWatcher, running, state, takeLibraryAction } from '../lib/state.js';
 import { store } from '../lib/store.js';
-import { confirmDialog, contextMenu, modal, showMenu, toast, toastError } from '../lib/ui.js';
+import { confirmDialog, contextMenu, copyByHand, modal, showMenu, toast, toastError } from '../lib/ui.js';
 import { locationPicker } from '../lib/picker.js';
 import { playHere } from '../lib/handoff.js';
 import { editConnection } from './connections.js';
 import { openLibraryAction } from '../shell/sidebar.js';
 
-// Every extension the indexer picks up. Until the user changes the filter, only the common video ones show.
+// Every extension a scan picks up. Until the user changes the filter, every video shows.
 const KNOWN_TYPES = ['mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mp3', 'flac', 'm4a', 'aac', 'wav', 'ogg', 'opus'];
-const COMMON_VIDEO = new Set(['mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', 'wmv']);
-const defaultHidden = () => new Set(KNOWN_TYPES.filter(x => !COMMON_VIDEO.has(x)));
+// Recordings (.ts, .m2ts) and old downloads (.flv) are videos like any other: only sound files are hidden at first.
+const AUDIO = new Set(['mp3', 'flac', 'm4a', 'aac', 'wav', 'ogg', 'opus']);
+const defaultHidden = () => new Set(KNOWN_TYPES.filter(x => AUDIO.has(x)));
 const sameSet = (a, b) => a.size === b.size && [...a].every(x => b.has(x));
 const shuffled = list => { const a = [...list]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const inScope = (it, s) => !s || it.dir === s || it.dir.startsWith(s + '/');
@@ -44,6 +45,10 @@ const REASONS = [
   [/timed? ?out|deadline exceeded|killed/i, t('library.reasonTooLong')],
   [/internal error/i, t('library.reasonInternal')],
 ];
+// Codecs by the names players and shops use: 'avc1' is H.264.
+const CODECS = { avc1: 'H.264', avc: 'H.264', h264: 'H.264', hvc1: 'HEVC (H.265)', hev1: 'HEVC (H.265)', hevc: 'HEVC (H.265)', h265: 'HEVC (H.265)', av01: 'AV1', av1: 'AV1',
+  vp09: 'VP9', vp9: 'VP9', vp8: 'VP8', mpeg4: 'MPEG-4', mp4v: 'MPEG-4', mpeg2video: 'MPEG-2', wmv3: 'WMV', mp3: 'MP3', mp4a: 'AAC', aac: 'AAC', flac: 'FLAC', opus: 'Opus', vorbis: 'Vorbis' };
+const codecName = c => CODECS[String(c).toLowerCase()] || c;
 const failReason = msg => (REASONS.find(([re]) => re.test(msg)) || [, t('library.reasonUnreadable')])[1];
 
 const itemSort = {
@@ -81,7 +86,7 @@ export async function mount(root, parts) {
 
   // ---------------------------------------------------------------- skeleton
   const libBtn = h('button.btn.lib-switch', { type: 'button', 'aria-haspopup': 'menu', onclick: e => openSwitcher(e.currentTarget) });
-  const qInput = h('input.input', { type: 'search', placeholder: t('library.searchPlaceholder'), 'aria-label': t('library.searchNames'), autocomplete: 'off',
+  const qInput = h('input.input', { type: 'search', placeholder: matchMedia('(hover: none)').matches ? t('library.searchNames') : t('library.searchPlaceholder'), 'aria-label': t('library.searchNames'), autocomplete: 'off',
     title: t('library.searchTitle') });
   const sortSel = h('select', { 'aria-label': t('library.sort') }, [['rel', t('library.sortBest')], ['name', t('library.sortName')], ['new', t('library.sortNewest')], ['size', t('library.sortLargest')], ['dur', t('library.sortLongest')]].map(([v, label]) => h('option', { value: v }, label)));
   if (S.sort === 'rel') S.sort = 'name'; // "Best match" only means something while searching
@@ -112,13 +117,13 @@ export async function mount(root, parts) {
   const plQuery = () => `lib=${encodeURIComponent(S.lib)}&dir=${encodeURIComponent(S.scope)}` + (S.hidden.size ? '&hide=' + encodeURIComponent([...S.hidden].join(',')) : '');
   const moreBtn = h('button.btn.icon-only', { type: 'button', 'aria-label': t('common.more'), title: t('library.moreTitle'), 'aria-haspopup': 'menu', onclick: e => openMore(e.currentTarget) }, icon('more'));
   const groups = h('div#groups');
-  const empty = h('p.empty', { hidden: true }, t('library.nothingMatches'));
+  const empty = h('div.empty-state.lib-empty', { hidden: true });
   const selText = h('div.sel-text');
   const selBar = h('div.selbar', { hidden: true, role: 'toolbar', 'aria-label': t('library.selectedVideos') },
     h('button.icon-btn.small', { type: 'button', 'aria-label': t('library.clearSelection'), title: t('library.clearSelectionTitle'), onclick: () => clearSelection() }, icon('x', 'sm')),
     selText,
     h('div.sel-actions',
-      h('button.btn.small', { type: 'button', title: t('library.selectAllTitle'), onclick: () => selectAll() }, t('library.selectAll')),
+      h('button.btn.small', { type: 'button', title: t('library.selectAllTitle', { keys: keys('A') }), onclick: () => selectAll() }, t('library.selectAll')),
       h('button.btn.small.icon-only', { type: 'button', 'aria-label': t('library.selectionPlaylist'), title: t('library.selectionPlaylist'), onclick: () => selectionPlaylist() }, icon(onThisComputer() ? 'download' : 'link', 'sm')),
       h('button.btn.small', { type: 'button', onclick: () => play(shuffled(selectedIds())) }, icon('shuffle', 'sm'), t('library.shuffle')),
       h('button.btn.small.primary', { type: 'button', onclick: () => play(selectedIds()) }, icon('play', 'sm'), t('common.play'))));
@@ -154,7 +159,7 @@ export async function mount(root, parts) {
     }
   }
   async function copy(text, done) {
-    try { await navigator.clipboard.writeText(text); toast(done, { kind: 'ok' }); } catch { toast(t('library.copyFailed', { text }), { kind: 'error' }); }
+    try { await navigator.clipboard.writeText(text); toast(done, { kind: 'ok' }); } catch { copyByHand(text); }
   }
   // Where a file really is, for any player or person: its path on this computer, a link into the bucket that works
   // anywhere (for a week), or, for a browser on another computer, its address on this server (the only way it has).
@@ -184,7 +189,7 @@ export async function mount(root, parts) {
     const frames = it.frames || 0;
     let cur = Math.min(it.cover ?? 0, Math.max(0, frames - 1));
     const big = frames ? h('img', { alt: '', src: thumb(it, cur) })
-      : h('div.det-ph', icon(it.kind === 'audio' ? 'music' : 'film', 'lg'), h('span', it.indexed === false && !it.error ? t('library.noCoverYet') : t('library.noPreview')));
+      : h('div.det-ph', icon(it.kind === 'audio' ? 'music' : 'film', 'lg'), h('span', it.error ? t('library.notScannedShort') : it.indexed === false ? t('library.noCoverYet') : t('library.noPreview')));
     const strip = frames > 1 ? h('div.det-strip', Array.from({ length: frames }, (_, i) =>
       h('button', { type: 'button', 'aria-label': t('library.keyframeOf', { n: i + 1, total: frames }), 'aria-pressed': String(i === cur), onclick: () => pick(i) },
         h('img', { alt: '', loading: 'lazy', src: thumb(it, i) })))) : null;
@@ -196,14 +201,14 @@ export async function mount(root, parts) {
     const row = (k, v) => (v == null || v === '' ? null : [h('dt', k), h('dd', v)]);
     const res = resLabel(it.width, it.height);
     const status = it.error ? h('span', { title: it.error }, t('library.couldNotBeScanned', { reason: failReason(it.error) })) : it.indexed === false ? t('library.noCoverYet')
-      : it.note ? t('library.keyframesFfmpeg', { count: frames }) : t('library.keyframes', { count: frames });
+      : t('library.keyframes', { count: frames });
     const meta = h('dl.det-meta',
       row(t('library.folder'), h('button.linkish', { type: 'button', title: t('library.showThisFolder'), onclick: () => { m.close(); go(it.dir); } }, it.dir || t('library.topLevel'))),
       row(t('library.size'), h('span', { title: t('library.bytesExact', { count: it.size }) }, bytes(it.size))),
       row(t('library.length'), it.duration ? clock(it.duration) : null),
       row(t('library.picture'), it.width ? `${it.width} × ${it.height}` + (res ? ' · ' + res : '') + (it.fps ? ` · ${it.fps} fps` : '') : null),
       row(t('library.subtitles'), it.subs?.length ? h('span', it.subs.map((n, i) => [i ? ', ' : '', h('a', { href: subUrl(it, n), target: '_blank', rel: 'noopener' }, subLabel(it, n))])) : null),
-      row(t('library.codec'), it.codec ? it.codec + (it.kind === 'video' ? ' · ' + (it.audio ? t('library.withSound') : t('library.noSound')) : '') : null),
+      row(t('library.codec'), it.codec ? codecName(it.codec) + (it.kind === 'video' ? ' · ' + (it.audio ? t('library.withSound') : t('library.noSound')) : '') : null),
       row(S.info.type === 'local' ? t('library.modified') : t('library.uploaded'), h('span', { title: it.mtime }, when(it.mtime))),
       row(t('library.added'), it.added && it.added !== it.mtime ? h('span', { title: it.added }, when(it.added)) : null),
       row(S.info.type === 'local' ? t('library.file') : t('library.object'), h('code.det-path', filePath(it))),
@@ -303,12 +308,13 @@ export async function mount(root, parts) {
     const art = h('article.card', { dataset: { id: it.id }, class: S.sel.has(it.id) ? 'selected' : '' });
     const cover = h('button.cover', { type: 'button', 'aria-label': t('library.playName', { name: it.name }) });
     const dated = S.info.type === 'local' ? t('library.modifiedOn', { date: it.mtime.slice(0, 10) }) : t('library.uploadedOn', { date: it.mtime.slice(0, 10) });
-    cover.title = [it.name, it.dir, [resLabel(it.width, it.height), it.codec, it.fps && it.fps + ' fps'].filter(Boolean).join(' · '), bytes(it.size) + ' · ' + dated].filter(Boolean).join('\n');
+    cover.title = [it.name, it.dir, [resLabel(it.width, it.height), it.codec && codecName(it.codec), it.fps && it.fps + ' fps'].filter(Boolean).join(' · '), bytes(it.size) + ' · ' + dated].filter(Boolean).join('\n');
     if (it.frames) {
       cover.append(h('img', { alt: '', loading: 'lazy', decoding: 'async', src: thumb(it, it.cover ?? 0) }));
     } else {
       cover.append(h('div.ph', icon(it.kind === 'audio' ? 'music' : 'film', 'lg'),
-        h('span', it.kind === 'audio' ? (it.codec || t('library.audio')).toUpperCase() : it.indexed === false && !it.error ? t('library.noCoverYet') : t('library.noPreview'))));
+        h('span', it.error ? t('library.notScannedShort') : it.kind === 'audio' ? it.codec ? codecName(it.codec).toUpperCase() : t('library.audio').toUpperCase() : it.indexed === false ? t('library.noCoverYet') : t('library.noPreview'))));
+      if (it.error) cover.title = [it.name, failReason(it.error)].join('\n');
     }
     const res = resLabel(it.width, it.height);
     if (res) cover.append(h('span.badge.tl', res));
@@ -316,10 +322,10 @@ export async function mount(root, parts) {
     if (it.subs?.length) cover.append(h('span.badge.tr', { title: t('library.subtitlesList', { list: it.subs.join(', ') }) }, 'CC'));
     if (it.frames > 1) cover.append(h('span.ticks', Array.from({ length: it.frames }, () => h('i'))));
     const hint = h('span.playhint'); hint.innerHTML = PLAY_HINT; cover.append(hint);
-    const title = h('div.title', { title: t('library.clickForDetails', { name: it.name }) }, stem(it.name));
+    const title = h('button.title', { type: 'button', title: t('library.clickForDetails', { name: it.name }) }, stem(it.name));
     const sub = h('div.sub', { title: `${bytes(it.size)} · ${when(it.mtime)}` }, entry.sub || t('library.addedAgo', { ago: ago(addedAt(it)) }));
     const cp = h('button.copy', { type: 'button', title: linkLabel(), 'aria-label': linkLabelOf(it.name) }, icon('copy', 'sm'));
-    const pick = h('button.pick', { type: 'button', 'aria-label': t('library.selectName', { name: it.name }), 'aria-pressed': String(S.sel.has(it.id)), title: t('library.selectTitle') }, icon('check', 'sm'));
+    const pick = h('button.pick', { type: 'button', 'aria-label': t('library.selectName', { name: it.name }), 'aria-pressed': String(S.sel.has(it.id)), title: t('library.selectTitle', { mod: modKey }) }, icon('check', 'sm'));
     art.append(cover, pick, h('div.meta', title, cp, sub));
     return art;
   }
@@ -493,7 +499,8 @@ export async function mount(root, parts) {
     onScreen.clear();
     groups.replaceChildren(frag);
     for (const box of $$('.gpath', groups)) pathIO.observe(box);
-    empty.hidden = list.length > 0 || !S.items.length;
+    const filtered = S.hidden.size ? S.items.filter(it => inScope(it, s) && S.hidden.has(it.ext)).length : 0;
+    paintEmpty(list.length, filtered);
 
     const ps = s ? s.split('/') : [];
     fill(crumbs, [[S.info?.name || t('library.allMedia'), ''], ...ps.map((p, i) => [p, ps.slice(0, i + 1).join('/')])].map(([name, path], i, arr) => {
@@ -502,9 +509,25 @@ export async function mount(root, parts) {
       return h('li', b);
     }));
     const total = list.reduce((a, it) => a + (it.duration || 0), 0), size = list.reduce((a, it) => a + it.size, 0);
-    const filtered = S.hidden.size ? S.items.filter(it => inScope(it, s) && S.hidden.has(it.ext)).length : 0;
     stats.textContent = `${t('library.videos', { count: list.length })} · ${span(total)} · ${bytes(size)}` + (S.q.trim() ? ' · ' + t('library.matching', { q: S.q.trim() }) : '') + (filtered ? ' · ' + t('library.hiddenByType', { count: filtered }) : '');
     document.title = (s ? leaf(s) + ' · ' : '') + (S.info ? S.info.name + ' · ' : '') + 'Media Library';
+  }
+
+  // Nothing to show: say why, and offer the one thing that brings videos back. With no videos at all (not scanned
+  // yet, a folder that is gone) the banner above says what to do, and the header keeps quiet: nothing to play.
+  function paintEmpty(shown, filtered) {
+    const none = !shown, q = S.q.trim();
+    playAll.hidden = shuffleAll.hidden = none;
+    stats.hidden = none;
+    empty.hidden = !none || !S.items.length;
+    if (empty.hidden) return;
+    const showAll = filtered ? h('button.btn', { type: 'button', class: q ? '' : 'primary', onclick: () => { S.hidden.clear(); typesChanged(); } }, t('library.showAllTypes')) : null;
+    fill(empty, icon(q ? 'search' : 'filter'),
+      h('h3', q ? t('library.noMatchTitle', { q }) : t('library.allHiddenTitle')),
+      h('p', q ? (filtered ? t('library.noMatchHiddenText', { count: filtered }) : t('library.noMatchText')) : t('library.allHiddenText', { count: filtered })),
+      h('div.empty-actions',
+        q ? h('button.btn.primary', { type: 'button', onclick: () => { qInput.value = ''; paintSaved(); runSearch(); } }, t('library.clearSearch')) : null,
+        showAll));
   }
 
   // A subfolder as a tile: the covers of its newest videos, its name, how much is in it.
@@ -711,18 +734,18 @@ export async function mount(root, parts) {
           : l.type === 's3' && !l.reachable ? t('library.connectionRemoved') : l.updated ? t('library.videosScanned', { count: l.items, ago: ago(l.updated) }) : t('library.notScannedYet');
       }
       const busy = running(job);
-      return h('li.lib', h('div.lib-main',
+      return h('li.lib', h('div.lib-info',
         h('div.lib-name', l.name, h('span.tag', TYPE_LABEL[l.type] || l.type), l.type === 's3' && l.connection_name ? h('span.tag', l.connection_name) : null, l.id === S.lib ? h('span.tag.accent', t('library.current')) : null),
         h('div.lib-loc.mono', l.location), meta),
         h('div.lib-actions',
-          h('button.btn.small', { type: 'button', disabled: l.id === S.lib, onclick: () => { m.close(); navigate('library', l.id); } }, t('common.open')),
+          l.id === S.lib ? null : h('button.btn.small', { type: 'button', onclick: () => { m.close(); navigate('library', l.id); } }, t('common.open')),
           h('button.btn.small', { type: 'button', disabled: busy, onclick: () => startIndex(l.id) }, l.updated ? t('library.updateIndex') : t('library.indexNow')),
           h('button.icon-btn.small', { type: 'button', 'aria-label': t('common.more'), onclick: e => showMenu({ anchor: e.currentTarget, align: 'right', items: [
             { label: t('library.editDots'), icon: 'edit', disabled: busy, onClick: () => editLibrary(l) },
             { label: t('library.remakeCovers'), icon: 'refresh', disabled: busy, onClick: () => startIndex(l.id, true) },
             l.convertible ? { label: t('library.readOverS3'), icon: 'cloud', disabled: busy, onClick: () => convert(l) } : null,
             { sep: true },
-            { label: t('common.remove'), icon: 'trash', danger: true, disabled: busy || state.libs.length < 2, onClick: () => removeLibrary(l) },
+            { label: t('common.remove'), icon: 'trash', danger: true, disabled: busy, onClick: () => removeLibrary(l) },
           ].filter(Boolean) }) }, icon('more'))));
     }));
     const off = on('activity', paint), off2 = on('libraries', paint);
@@ -742,7 +765,7 @@ export async function mount(root, parts) {
         try { const j = await post('/api/pick-folder', {}); if (j.path) pathIn.value = j.path; } catch (x) { err.textContent = x.message; err.hidden = false; }
         b.disabled = false; b.textContent = t('library.browse');
       } }, t('library.browse'));
-      where = h('div.field', h('label', t('library.folder')), h('div.input-wrap', pathIn, browse));
+      where = h('div.field', h('label', t('library.folder')), h('div.input-wrap', pathIn, state.system?.on_machine ? browse : null));
       getBody = () => ({ path: pathIn.value });
     } else if (l.type === 's3') {
       let loc = { conn: l.connection, bucket: l.bucket, prefix: l.prefix };
@@ -779,7 +802,7 @@ export async function mount(root, parts) {
     try {
       const j = await post('/api/libraries/remove', { id: l.id });
       await loadLibraries();
-      if (l.id === S.lib) navigate('library', j.active);
+      if (l.id === S.lib) { if (j.active) navigate('library', j.active); else navigate('home'); }
     } catch (e) { toastError(t('library.couldNotRemove'), e); }
   }
   async function startIndex(id, force = false, retry = false) {
@@ -812,7 +835,9 @@ export async function mount(root, parts) {
   // ---------------------------------------------------------------- add a library
   function addLibrary() {
     let mode = state.connections.length ? store.get('addMode', 'local') : 'local';
-    const pathIn = h('input.input', { placeholder: t('library.pathPlaceholder'), autocomplete: 'off', spellcheck: 'false' });
+    // An example of a folder the way the computer running medialib writes one.
+    const os = (state.system?.platform || '').split('/')[0];
+    const pathIn = h('input.input', { placeholder: os === 'windows' ? t('library.pathPlaceholder') : os === 'darwin' ? t('library.pathPlaceholderMac') : t('library.pathPlaceholderLinux'), autocomplete: 'off', spellcheck: 'false' });
     const nameIn = h('input.input', { placeholder: t('library.nameOptional'), autocomplete: 'off' });
     const err = h('p.form-error', { hidden: true });
     const browse = h('button.btn', { type: 'button', onclick: async e => {
@@ -821,7 +846,7 @@ export async function mount(root, parts) {
       b.disabled = false; b.textContent = t('library.browse');
     } }, t('library.browse'));
     const localPane = h('div', h('p.hint', t('library.localHint')),
-      h('div.field', h('label', t('library.folder')), h('div.input-wrap', pathIn, browse)), h('div.field', h('label', t('library.name')), nameIn));
+      h('div.field', h('label', t('library.folder')), h('div.input-wrap', pathIn, state.system?.on_machine ? browse : null)), h('div.field', h('label', t('library.name')), nameIn));
     let loc = { conn: '', bucket: '', prefix: '' };
     const s3Name = h('input.input', { placeholder: t('library.nameOptional'), autocomplete: 'off' });
     const picker = state.connections.length ? locationPicker({ onChange: v => { loc = v; } }) : null;
@@ -877,12 +902,12 @@ export async function mount(root, parts) {
     } else if (pending) { msg = t('library.withoutCover', { count: pending }); act = t('library.makeCovers'); }
     let failed = 0;
     if (!msg && !running(job) && (failed = failedItems().length)) {
-      msg = t('library.filesCouldNotBeScanned', { count: failed }); detail = t('library.failedDetail'); kind = 'warn';
+      msg = t('library.filesCouldNotBeScanned', { count: failed }); detail = t('library.failedDetail', { count: failed }); kind = 'warn';
     }
     banner.hidden = !msg;
     banner.className = 'banner lib-banner ' + kind;
     fill(banner, h('div.grow', h('strong', msg), detail ? h('div.banner-detail', detail) : null),
-      edit ? h('button.btn', { type: 'button', onclick: () => manageLibraries() }, t('library.editLibraryDots')) : null,
+      edit ? h('button.btn', { type: 'button', onclick: () => { const l = state.libs.find(x => x.id === S.lib); if (l) editLibrary(l); else manageLibraries(); } }, t('library.editLibraryDots')) : null,
       act ? h('button.btn', { type: 'button', class: kind ? '' : 'primary', onclick: () => startIndex(S.lib) }, act) : null,
       failed ? h('button.btn', { type: 'button', onclick: () => showFailed() }, t('library.seeWhich')) : null);
     fill(warnings, (info.warnings || []).map(w => h('li', w)));
@@ -912,6 +937,7 @@ export async function mount(root, parts) {
     if (!a) return;
     if (a.name === 'add') addLibrary();
     else if (a.name === 'manage') manageLibraries();
+    else if (a.name === 'failed') { if (S.lib === a.arg.lib) showFailed(); else S.pendingFailed = a.arg.lib; } // after the switch
     else if (a.name === 'reveal') {
       // The caller has navigated to the file's folder. Drop any search so the file is in view, then scroll to it:
       // now if this view already shows that folder, otherwise when the pending update has drawn it.
@@ -1096,16 +1122,24 @@ export async function mount(root, parts) {
     playerSel.value = S.player || '';
     const showSeg = h('div.seg', [['folders', t('library.folders')], ['all', t('library.allVideos')]].map(([v, label]) => h('button', { type: 'button', 'aria-pressed': String(store.get('libDisplay', 'folders') === v),
       onclick: () => { store.set('libDisplay', v); for (const b of showSeg.children) b.setAttribute('aria-pressed', String(b.textContent === label)); render(); } }, label)));
+    // On a phone the sort has no room in the toolbar: it is here instead.
+    const sortCopy = narrow.matches ? sortSel.cloneNode(true) : null;
+    if (sortCopy) { sortCopy.value = sortSel.value; sortCopy.addEventListener('change', () => { sortSel.value = sortCopy.value; sortSel.dispatchEvent(new Event('change')); }); }
     showMenu({ anchor, align: 'right', items: [
+      sortCopy ? { head: t('library.sort') } : null, sortCopy ? { node: sortCopy } : null, sortCopy ? { sep: true } : null,
       { head: t('library.show') }, { node: showSeg }, { sep: true },
       { head: t('library.playWith') }, { node: playerSel }, { sep: true },
       { head: t('library.coverSize') }, { node: sizeSeg },
     ] });
   }
+  // A phone's screen holds two medium covers a row; the same sizes as a computer would leave one.
+  const narrow = matchMedia('(max-width: 860px)');
   function setSize(size) {
-    document.documentElement.style.setProperty('--card-min', { s: '170px', m: '230px', l: '320px' }[size] || '230px');
+    const sizes = narrow.matches ? { s: '110px', m: '150px', l: '240px' } : { s: '170px', m: '230px', l: '320px' };
+    document.documentElement.style.setProperty('--card-min', sizes[size] || sizes.m);
     store.set('size', size);
   }
+  scope.on(narrow, 'change', () => { setSize(store.get('size', 'm')); render(); });
 
   // ---------------------------------------------------------------- hover scrub (delegated)
   let scrubbing = null;
@@ -1205,6 +1239,7 @@ export async function mount(root, parts) {
       if (wanted !== S.lib) { await switchLibrary(wanted, path.join('/')); paintSwitch(); }
       else applyScope(path.join('/'));
       consumeReveal();
+      if (S.pendingFailed === S.lib) { S.pendingFailed = null; showFailed(); }
     } catch (e) { toastError(t('library.couldNotLoad'), e); }
   }
   await update(parts);

@@ -224,6 +224,7 @@ dialog::backdrop { background: rgb(8 12 20 / .45); backdrop-filter: blur(3px); }
 .app-head .theme-btn:hover { color: var(--text); }
 .side-count { flex: none; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .side-link[aria-current] .side-count { color: var(--accent); }
+.side-warn, .side-link[aria-current] .side-warn .ic { flex: none; display: inline-flex; color: var(--warn); }
 .side-empty { display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; border: 1px dashed var(--rule-strong); border-radius: 10px; background: none; color: var(--muted); }
 .side-empty:hover { border-color: var(--accent); color: var(--accent); }
 .mobile-only { display: none !important; }

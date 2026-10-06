@@ -8,13 +8,14 @@ import { navigate } from '../lib/router.js';
 import { state } from '../lib/state.js';
 import { store } from '../lib/store.js';
 import { toast, toastError } from '../lib/ui.js';
-import { SECTIONS, isDark, openLibraryAction, toggleSidebar, toggleTheme } from './sidebar.js';
-import { clock } from '../lib/fmt.js';
+import { SECTIONS, isDark, offered, openLibraryAction, toggleSidebar, toggleTheme } from './sidebar.js';
+import { altKeys, clock, keys, modKey, stem } from '../lib/fmt.js';
+import { playHere } from '../lib/handoff.js';
 import { t } from '../lib/i18n.js';
 
 function commands() {
   const out = [];
-  SECTIONS.forEach((s, i) => out.push({ group: t('palette.goTo'), label: s.label, hint: s.hint, icon: s.icon, key: i < 5 ? `Alt+${i + 1}` : undefined, run: () => navigate(s.id) }));
+  SECTIONS.forEach((s, i) => offered(s) && out.push({ group: t('palette.goTo'), label: s.label, hint: s.hint, icon: s.icon, key: i < 5 ? altKeys(String(i + 1)) : undefined, run: () => navigate(s.id) }));
   for (const l of state.libs) out.push({ group: t('palette.libraries'), label: l.name, hint: l.type === 'local' ? l.path : `${l.bucket || ''}/${l.prefix || ''}`, icon: l.type === 'local' ? 'folder' : 'cloud', run: () => navigate('library', l.id) });
   for (const c of state.connections) out.push({ group: t('palette.stores'), label: c.name, hint: c.endpoint, icon: 'server', run: () => navigate('storage', c.id) });
   out.push(
@@ -22,7 +23,7 @@ function commands() {
     { group: t('palette.actions'), label: t('palette.manageLibraries'), hint: t('palette.manageLibrariesHint'), icon: 'sliders', run: () => openLibraryAction('manage') },
     { group: t('palette.actions'), label: t('palette.addConnection'), icon: 'plug', run: () => navigate('connections') },
     { group: t('palette.actions'), label: isDark() ? t('palette.lightMode') : t('palette.darkMode'), icon: isDark() ? 'sun' : 'moon', run: toggleTheme },
-    { group: t('palette.actions'), label: t('palette.toggleSidebar'), icon: 'menu', key: 'Ctrl+B', run: toggleSidebar },
+    { group: t('palette.actions'), label: t('palette.toggleSidebar'), icon: 'menu', key: keys('B'), run: toggleSidebar },
     { group: t('palette.actions'), label: t('palette.reload'), icon: 'refresh', key: 'F5', run: () => location.reload() },
   );
   return out;
@@ -44,8 +45,8 @@ async function playMedia(m) {
     const j = await post('/api/play', { lib: m.lib, ids: [m.id], player: store.get('player', state.defaultPlayer) });
     toast(t('palette.openingIn', { player: j.player }), { kind: 'ok' });
   } catch (e) {
-    if (e.status === 403) { // another computer: the server cannot open a player on that screen
-      window.open(`${location.origin}/media/${m.lib}/${m.id}/${encodeURIComponent(m.name)}`, '_blank');
+    if (e.status === 403) { // another computer or a phone: play it there, as Home and the library do
+      playHere(m.lib, m).catch(x => toastError(t('palette.playerFailed'), x));
       return;
     }
     toastError(t('palette.playerFailed'), e);
@@ -53,7 +54,7 @@ async function playMedia(m) {
 }
 
 const mediaCommand = m => ({
-  group: t('palette.media'), label: m.name, hint: [m.libName, m.dir].filter(Boolean).join(' › '), icon: m.kind === 'audio' ? 'music' : 'film', media: m,
+  group: t('palette.media'), label: stem(m.name), hint: [m.libName, m.dir].filter(Boolean).join(' › '), icon: m.kind === 'audio' ? 'music' : 'film', media: m,
   thumb: m.frames ? `/thumbs/${m.lib}/${m.id}-${m.ver}-${m.cover ?? 0}.avif` : null, time: m.duration ? clock(m.duration) : '',
   run: () => playMedia(m),
   alt: () => openLibraryAction('reveal', { lib: m.lib, dir: m.dir, id: m.id }),
@@ -67,7 +68,7 @@ export function openPalette() {
   const input = h('input.pal-input', { placeholder: t('palette.placeholder'), 'aria-label': t('palette.name'), autocomplete: 'off', spellcheck: 'false' });
   const list = h('div.pal-list', { role: 'listbox' });
   const hintEnter = h('span', ' ' + t('palette.keyOpen'));
-  const hintAlt = h('span', { hidden: true }, h('kbd', 'Ctrl'), h('kbd', '↵'), ' ' + t('palette.keyShowInFolder'));
+  const hintAlt = h('span', { hidden: true }, h('kbd', modKey), h('kbd', '↵'), ' ' + t('palette.keyShowInFolder'));
   const dlg = h('div.pal-scrim', { onmousedown: e => { if (e.target === dlg) close(); } },
     h('div.pal', { role: 'dialog', 'aria-label': t('palette.name') },
       h('div.pal-top', icon('search'), input, h('kbd', 'Esc')), list,
@@ -85,7 +86,7 @@ export function openPalette() {
       if ((!words.length || c.media) && c.group !== group) { group = c.group; list.append(h('div.pal-group', group, c.media && total > found.length ? h('span.pal-more', t('palette.shownOf', { shown: found.length, total })) : null)); }
       const lead = c.thumb ? h('span.pal-thumb', h('img', { src: c.thumb, alt: '', loading: 'lazy' })) : icon(c.icon);
       list.append(h('button.pal-item', { class: c.media ? 'media' : '', type: 'button', role: 'option', 'aria-selected': String(i === sel), dataset: { i }, onmousemove: () => { if (sel !== i) { sel = i; mark(); } }, onclick: e => ((e.ctrlKey || e.metaKey) && c.alt ? (close(), c.alt()) : run(c)) },
-        lead, h('span.pal-label', c.label), c.hint ? h('span.pal-hint', c.hint) : null, c.time ? h('span.pal-time', c.time) : null, c.alt ? h('span.pal-reveal', { role: 'button', title: t('palette.showInFolderTitle'), 'aria-label': t('palette.showInFolder'), onclick: e => { e.stopPropagation(); close(); c.alt(); } }, icon('folder', 'sm')) : null, c.key ? h('kbd', c.key) : null));
+        lead, h('span.pal-label', c.label), c.hint ? h('span.pal-hint', c.hint) : null, c.time ? h('span.pal-time', c.time) : null, c.alt ? h('span.pal-reveal', { role: 'button', title: t('palette.showInFolderTitle', { keys: keys('Enter') }), 'aria-label': t('palette.showInFolder'), onclick: e => { e.stopPropagation(); close(); c.alt(); } }, icon('folder', 'sm')) : null, c.key ? h('kbd', c.key) : null));
     });
     mark();
   }

@@ -113,11 +113,15 @@ func (a *App) home(c *Ctx) (any, error) {
 		}
 	}
 	// The files medialib found last, over all libraries: a bounded selection, not a sort of everything. When a file was
-	// found counts, not its own time: a file copied with its date kept is new here too.
+	// found counts, not its own time: a file copied with its date kept is new here too. A file that could not be
+	// scanned (still downloading, damaged) is left out: it has no cover and may not play.
 	added := make([]homeItem, 0, homeRows+1)
 	for id, snap := range snaps {
 		for i := range snap.Data.Items {
 			it := &snap.Data.Items[i]
+			if it.Error != "" {
+				continue
+			}
 			if len(added) == homeRows && addedAt(it) <= addedAt(&added[homeRows-1].Item) {
 				continue
 			}

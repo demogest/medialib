@@ -81,3 +81,9 @@ details.advanced[open] summary { margin-bottom: 14px; }
 .notes-release + .notes-release { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rule-strong); }
 .notes-version { margin: 0 0 10px; font-size: 1.1rem; }
 .notes-when { font-weight: 400; font-size: .85rem; color: var(--muted); }
+
+/* Settings: the sections, one click away */
+.set-jump { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 18px; }
+.set-jump button { padding: 5px 12px; border: 1px solid var(--rule); border-radius: 999px; background: none; color: var(--text-2); font-size: 13px; }
+.set-jump button:hover { background: var(--hover); color: var(--text); }
+.section-title[id] { scroll-margin-top: 16px; }

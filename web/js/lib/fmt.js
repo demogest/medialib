@@ -59,3 +59,9 @@ const KINDS = {
 };
 const KIND_OF = new Map(Object.entries(KINDS).flatMap(([k, exts]) => exts.map(e => [e, k])));
 export const kindOf = name => KIND_OF.get(extOf(name)) || 'file';
+
+// Shortcuts the way the keyboard in front of the user labels them: ⌘K on a Mac, Ctrl+K elsewhere.
+const MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+export const modKey = MAC ? '⌘' : 'Ctrl';
+export const keys = k => (MAC ? '⌘' + k : 'Ctrl+' + k);
+export const altKeys = k => (MAC ? '⌥' + k : 'Alt+' + k);

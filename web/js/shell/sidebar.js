@@ -7,16 +7,19 @@ import { href, navigate, parseHash } from '../lib/router.js';
 import { on, requestLibraryAction, running, state } from '../lib/state.js';
 import { store } from '../lib/store.js';
 import { t } from '../lib/i18n.js';
+import { altKeys, keys } from '../lib/fmt.js';
 
 // Every place there is, for the palette and the Alt+number shortcuts.
 export const SECTIONS = [
   { id: 'home', label: t('nav.home'), icon: 'home', hint: t('nav.homeHint') },
   { id: 'library', label: t('nav.library'), icon: 'library', hint: t('nav.libraryHint') },
-  { id: 'storage', label: t('nav.storage'), icon: 'storage', hint: t('nav.storageHint') },
+  { id: 'storage', label: t('nav.storage'), icon: 'storage', hint: t('nav.storageHint'), cloud: true },
   { id: 'activity', label: t('nav.activity'), icon: 'activity', hint: t('nav.activityHint') },
   { id: 'settings', label: t('nav.settings'), icon: 'settings', hint: t('nav.settingsHint') },
-  { id: 'connections', label: t('nav.connections'), icon: 'plug', hint: t('nav.connectionsHint') },
+  { id: 'connections', label: t('nav.connections'), icon: 'plug', hint: t('nav.connectionsHint'), cloud: true },
 ];
+// Storage and Connections are for people who keep media in a bucket: offered once a store is connected.
+export const offered = s => !s.cloud || state.connections.length > 0;
 
 export const isDark = () => document.documentElement.dataset.theme === 'dark'
   || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
@@ -26,7 +29,11 @@ export function setTheme(mode) {
   else { document.documentElement.dataset.theme = mode; store.set('theme', mode); }
   document.dispatchEvent(new Event('themechange'));
 }
-export const toggleTheme = () => setTheme(isDark() ? 'light' : 'dark');
+// The other look; when that is the one the system asks for, back to following the system (as Settings shows it).
+export const toggleTheme = () => {
+  const next = isDark() ? 'light' : 'dark';
+  setTheme(next === (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') ? 'system' : next);
+};
 
 export function setCollapsed(on_) {
   document.documentElement.dataset.side = on_ ? 'collapsed' : 'open';
@@ -61,11 +68,11 @@ export function buildSidebar(root, { onSearch }) {
     h('div.app-head',
       h('a.brand', { href: href('home'), title: 'Media Library' }, h('span.brand-mark', logo()), h('span.brand-name', 'Media Library')),
       themeBtn,
-      h('button.icon-btn.collapse', { type: 'button', 'aria-label': t('nav.collapse'), title: t('nav.collapseTitle'), onclick: toggleSidebar }, icon('chevron-left', 'sm'))),
-    h('button.side-search', { type: 'button', onclick: onSearch, title: t('nav.searchTitle') },
-      icon('search', 'sm'), h('span.nav-label', t('nav.search')), h('kbd.kbd-hint', 'Ctrl K')),
+      h('button.icon-btn.collapse', { type: 'button', 'aria-label': t('nav.collapse'), title: t('nav.collapseTitle', { keys: keys('B') }), onclick: toggleSidebar }, icon('chevron-left', 'sm'))),
+    h('button.side-search', { type: 'button', onclick: onSearch, title: t('nav.searchTitle', { keys: keys('K') }) },
+      icon('search', 'sm'), h('span.nav-label', t('nav.search')), h('kbd.kbd-hint', keys('K'))),
     h('nav.side-nav', { 'aria-label': t('nav.sections') },
-      tab('home', t('nav.home'), 'home', { title: t('nav.homeTitle') }),
+      tab('home', t('nav.home'), 'home', { title: t('nav.homeTitle', { keys: altKeys('1') }) }),
       tab('library', t('nav.library'), 'library', { class: 'mobile-only' }),
       h('button.nav-item.mobile-only', { type: 'button', onclick: onSearch }, icon('search'), h('span.nav-label', t('nav.search'))),
       storageTab),
@@ -75,9 +82,9 @@ export function buildSidebar(root, { onSearch }) {
         h('button.mini', { type: 'button', 'aria-label': t('nav.addLibrary'), title: t('nav.addLibrary'), onclick: () => openLibraryAction('add') }, icon('plus', 'sm')))),
       libs,
       cloud),
-    h('div.app-foot', busy, updateBtn, tab('settings', t('nav.settings'), 'settings', { title: t('nav.settingsTitle') })),
+    h('div.app-foot', busy, updateBtn, tab('settings', t('nav.settings'), 'settings', { title: t('nav.settingsTitle', { keys: altKeys('5') }) })),
   );
-  const expand = h('button.icon-btn.expand', { type: 'button', 'aria-label': t('nav.expand'), title: t('nav.expandTitle'), onclick: toggleSidebar }, icon('chevron-right', 'sm'));
+  const expand = h('button.icon-btn.expand', { type: 'button', 'aria-label': t('nav.expand'), title: t('nav.expandTitle', { keys: keys('B') }), onclick: toggleSidebar }, icon('chevron-right', 'sm'));
   root.append(expand);
 
   const paintTheme = () => {
@@ -96,6 +103,7 @@ export function buildSidebar(root, { onSearch }) {
       return h('a.side-link', { href: href('library', l.id), dataset: { lib: l.id }, title: l.name },
         icon(l.type === 'local' ? 'folder' : 'cloud', 'sm'), h('span.nav-label.grow', l.name),
         scanning ? h('span.spin', { title: pct == null ? t('nav.scanning') : t('nav.scanningPct', { pct }) })
+          : l.reachable === false ? h('span.side-warn', { title: l.type === 'local' ? t('nav.folderNotFound') : t('nav.connectionMissing') }, icon('alert', 'sm'))
           : l.items ? h('span.side-count.nav-label', l.items > 999 ? Math.round(l.items / 100) / 10 + 'k' : String(l.items)) : null);
     }) : [h('button.side-empty.nav-label', { type: 'button', onclick: () => openLibraryAction('add') }, icon('plus', 'sm'), t('nav.addFirstLibrary'))]));
     conns.replaceChildren(...state.connections.map(c =>
