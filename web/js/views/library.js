@@ -8,7 +8,9 @@ import { loadLibraries, loadConnections, on, pokeWatcher, running, state, takeLi
 import { store } from '../lib/store.js';
 import { confirmDialog, contextMenu, modal, showMenu, toast, toastError } from '../lib/ui.js';
 import { locationPicker } from '../lib/picker.js';
+import { playHere } from '../lib/handoff.js';
 import { editConnection } from './connections.js';
+import { openLibraryAction } from '../shell/sidebar.js';
 
 // Every extension the indexer picks up. Until the user changes the filter, only the common video ones show.
 const KNOWN_TYPES = ['mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mp3', 'flac', 'm4a', 'aac', 'wav', 'ogg', 'opus'];
@@ -29,10 +31,24 @@ const localPath = (root, key) => {
   return root.replace(/[\\/]+$/, '') + sep + key.split('/').join(sep);
 };
 
+// When medialib first found a file (an index from before that was kept: the file's own time).
+const addedAt = it => it.added || it.mtime;
+// Why a file could not be scanned, in plain words, from what ffmpeg or medialib said.
+const REASONS = [
+  [/moov|end of file|truncat|partial file/i, 'The file is incomplete: still downloading, or cut short.'],
+  [/invalid data|could not find codec|unknown format|not supported|no indexed video track|EBML header parsing failed/i, 'It is damaged, or not a format ffmpeg can read.'],
+  [/no frame could be extracted/i, 'No picture could be read from it.'],
+  [/permission denied|access is denied|403|forbidden/i, 'medialib is not allowed to read it.'],
+  [/no such file|not found|404|cannot find/i, 'It was moved or deleted after the folder was listed.'],
+  [/timed? ?out|deadline exceeded|killed/i, 'Reading it took too long.'],
+  [/internal error/i, 'medialib could not handle this file.'],
+];
+const failReason = msg => (REASONS.find(([re]) => re.test(msg)) || [, 'ffmpeg could not read it.'])[1];
+
 const itemSort = {
   rel: (a, b) => a.rank - b.rank,
   name: (a, b) => collator.compare(a.it.name, b.it.name),
-  new: (a, b) => b.it.mtime.localeCompare(a.it.mtime) || collator.compare(a.it.name, b.it.name),
+  new: (a, b) => addedAt(b.it).localeCompare(addedAt(a.it)) || collator.compare(a.it.name, b.it.name),
   size: (a, b) => b.it.size - a.it.size,
   dur: (a, b) => (b.it.duration || 0) - (a.it.duration || 0),
 };
@@ -47,13 +63,16 @@ const groupSort = {
 export async function mount(root, parts) {
   const scope = new Scope();
   const S = {
-    lib: null, info: null, items: [], byId: new Map(), scope: '', q: '', sort: store.get('sort', 'name'),
+    lib: null, info: null, version: null, items: [], byId: new Map(), scope: '', q: '', sort: store.get('sort', 'name'),
     tree: null, nodes: new Map(), shown: [], hidden: defaultHidden(), visibleIds: [], player: null,
     match: null, rank: null, ranked: true, sortAuto: true, pendingReveal: null,
   };
   try { const saved = store.get('hiddenTypes', null); if (saved) S.hidden = new Set(JSON.parse(saved)); } catch { /* keep the default */ }
 
   const thumb = (it, i) => `/thumbs/${S.lib}/${it.id}-${it.ver}-${i}.avif`;
+  const subUrl = (it, name) => `${location.origin}/subs/${S.lib}/${it.id}/${encodeURIComponent(name)}`;
+  // "Film.en.srt" next to "Film.mkv" reads "en (SRT)"; "Film.srt" just "SRT".
+  const subLabel = (it, name) => { const mid = name.slice(stem(it.name).length + 1, name.lastIndexOf('.')); const ext = extOf(name).toUpperCase(); return mid ? `${mid} (${ext})` : ext; };
   const mediaUrl = it => `${location.origin}/media/${S.lib}/${it.id}/${encodeURIComponent(it.name)}`;
 
   // ---------------------------------------------------------------- skeleton
@@ -109,10 +128,11 @@ export async function mount(root, parts) {
       const j = await post('/api/play', { lib: S.lib, ids: ids.slice(0, 500), player: S.player });
       toast(j.count > 1 ? `Opening ${j.count} items in ${j.player}` : `Opening in ${j.player}`, { kind: 'ok' });
     } catch (e) {
-      if (e.status === 403) { // a browser on another computer: the server cannot open a player on that screen
+      if (e.status === 403) { // a browser on another computer or a phone: the server cannot open a player on that screen
         const it = ids.length === 1 ? S.items.find(x => x.id === ids[0]) : null;
-        window.open(it ? mediaUrl(it) : `/api/playlist.m3u8?lib=${encodeURIComponent(S.lib)}&ids=${ids.slice(0, 500).map(encodeURIComponent).join(',')}`, '_blank');
-        toast(it ? 'Opening the stream in your browser' : 'Downloading a playlist for your player', { kind: 'ok' });
+        if (it) { playHere(S.lib, it).catch(x => toastError('Could not play', x)); return; }
+        window.open(`/api/playlist.m3u8?lib=${encodeURIComponent(S.lib)}&ids=${ids.slice(0, 500).map(encodeURIComponent).join(',')}`, '_blank');
+        toast('Downloading a playlist for your player', { kind: 'ok' });
         return;
       }
       toastError('Could not start the player', e);
@@ -159,15 +179,17 @@ export async function mount(root, parts) {
     };
     const row = (k, v) => (v == null || v === '' ? null : [h('dt', k), h('dd', v)]);
     const res = resLabel(it.width, it.height);
-    const status = it.error ? 'Failed: ' + it.error : it.indexed === false ? 'No cover yet'
+    const status = it.error ? h('span', { title: it.error }, 'Could not be scanned: ' + failReason(it.error)) : it.indexed === false ? 'No cover yet'
       : plural(frames, 'keyframe') + (it.note ? ' (read with ffmpeg)' : '');
     const meta = h('dl.det-meta',
       row('Folder', h('button.linkish', { type: 'button', title: 'Show this folder', onclick: () => { m.close(); go(it.dir); } }, it.dir || 'Top level')),
       row('Size', h('span', { title: num(it.size) + ' bytes' }, bytes(it.size))),
       row('Length', it.duration ? clock(it.duration) : null),
       row('Picture', it.width ? `${it.width} × ${it.height}` + (res ? ' · ' + res : '') + (it.fps ? ` · ${it.fps} fps` : '') : null),
+      row('Subtitles', it.subs?.length ? h('span', it.subs.map((n, i) => [i ? ', ' : '', h('a', { href: subUrl(it, n), target: '_blank', rel: 'noopener' }, subLabel(it, n))])) : null),
       row('Codec', it.codec ? it.codec + (it.kind === 'video' ? (it.audio ? ' · with sound' : ' · no sound') : '') : null),
       row(S.info.type === 'local' ? 'Modified' : 'Uploaded', h('span', { title: it.mtime }, when(it.mtime))),
+      row('Added', it.added && it.added !== it.mtime ? h('span', { title: it.added }, when(it.added)) : null),
       row(S.info.type === 'local' ? 'File' : 'Object', h('code.det-path', filePath(it))),
       row('Index', status));
     const m = modal({
@@ -275,10 +297,11 @@ export async function mount(root, parts) {
     const res = resLabel(it.width, it.height);
     if (res) cover.append(h('span.badge.tl', res));
     if (it.duration) cover.append(h('span.badge.br', clock(it.duration)));
+    if (it.subs?.length) cover.append(h('span.badge.tr', { title: 'Subtitles: ' + it.subs.join(', ') }, 'CC'));
     if (it.frames > 1) cover.append(h('span.ticks', Array.from({ length: it.frames }, () => h('i'))));
     const hint = h('span.playhint'); hint.innerHTML = PLAY_HINT; cover.append(hint);
     const title = h('div.title', { title: it.name + '\nClick for details' }, stem(it.name));
-    const sub = h('div.sub', { title: `${bytes(it.size)} · ${when(it.mtime)}` }, entry.sub || `Added ${ago(it.mtime)}`);
+    const sub = h('div.sub', { title: `${bytes(it.size)} · ${when(it.mtime)}` }, entry.sub || `Added ${ago(addedAt(it))}`);
     const cp = h('button.copy', { type: 'button', title: linkLabel(), 'aria-label': `${linkLabel()} of ${it.name}` }, icon('copy', 'sm'));
     art.append(cover, h('div.meta', title, cp, sub));
     return art;
@@ -421,7 +444,7 @@ export async function mount(root, parts) {
       if (rank < g.best) g.best = rank;
       g.size += it.size;
       g.dur += it.duration || 0;
-      if (it.mtime > g.newest) g.newest = it.mtime;
+      if (addedAt(it) > g.newest) g.newest = addedAt(it);
     }
     const frag = document.createDocumentFragment();
     S.visibleIds = [];
@@ -474,7 +497,7 @@ export async function mount(root, parts) {
     for (const e of g.entries) {
       if (!e.it.frames) continue;
       let pos = covers.length;
-      while (pos > 0 && covers[pos - 1].mtime < e.it.mtime) pos--;
+      while (pos > 0 && addedAt(covers[pos - 1]) < addedAt(e.it)) pos--;
       if (pos < 4) { covers.splice(pos, 0, e.it); covers.length = Math.min(covers.length, 4); }
     }
     const ids = () => g.entries.map(e => e.it.id);
@@ -526,7 +549,7 @@ export async function mount(root, parts) {
     });
   }
   function fitPath(box) {
-    if (!box.clientWidth) return;
+    if (!box.clientWidth || !box._parts) return; // "Files in this folder" is a plain title, not a path
     box.classList.add('measuring');
     const middle = Math.max(0, box._parts.length - 2);
     for (let omit = 0; omit <= middle; omit++) { drawPath(box, omit); if (box.scrollWidth <= box.clientWidth) break; }
@@ -552,6 +575,7 @@ export async function mount(root, parts) {
   async function loadLibrary(keepView = false) {
     const lib = await get('/api/library?lib=' + encodeURIComponent(S.lib));
     S.info = lib;
+    S.version = lib.version;
     S.items = lib.items;
     for (const it of lib.items) it.ext = extOf(it.name);
     S.byId = new Map(lib.items.map(it => [it.id, it]));
@@ -560,6 +584,53 @@ export async function mount(root, parts) {
     paintBanner();
     paintSwitch();
     if (S.q.trim()) runSearch(); // files may have arrived
+  }
+  // While a scan runs: fetch only what changed since the version on screen, and redraw just the cards it touches.
+  // Files that come or go change the folders, so then (and when the scan ends) the view is rebuilt, still without
+  // downloading the whole library again.
+  async function refreshLibrary(final = false) {
+    if (!S.version) return loadLibrary(true);
+    const id = S.lib;
+    const j = await get(`/api/library?lib=${encodeURIComponent(id)}&since=${encodeURIComponent(S.version)}`);
+    if (id !== S.lib) return;
+    if (!j.changed) { // the server no longer knows that version (it restarted): this is the whole library
+      S.info = j; S.version = j.version; S.items = j.items;
+      for (const it of S.items) it.ext = extOf(it.name);
+      S.byId = new Map(S.items.map(it => [it.id, it]));
+      final = true;
+    } else {
+      S.info = j;
+      S.version = j.version;
+      let shape = j.removed.length > 0;
+      for (const fresh of j.changed) {
+        fresh.ext = extOf(fresh.name);
+        const old = S.byId.get(fresh.id);
+        if (!old) { S.items.push(fresh); S.byId.set(fresh.id, fresh); shape = true; continue; }
+        for (const k of Object.keys(old)) if (!(k in fresh)) delete old[k]; // a field the server leaves out when empty
+        Object.assign(old, fresh);
+      }
+      if (j.removed.length) {
+        const gone = new Set(j.removed);
+        S.items = S.items.filter(it => !gone.has(it.id));
+        for (const x of gone) S.byId.delete(x);
+      }
+      if (!shape && !final) { redrawCards(new Set(j.changed.map(x => x.id))); paintBanner(); return; }
+    }
+    rebuildView(true);
+    paintTypes();
+    paintBanner();
+    paintSwitch();
+    if (S.q.trim()) runSearch();
+  }
+  function redrawCards(ids) {
+    if (!ids.size) return;
+    for (const grid of $$('.grid', groups)) {
+      for (const el of grid.querySelectorAll('.card')) {
+        if (!ids.has(el.dataset.id)) continue;
+        const entry = grid._entries.find(e => e.it.id === el.dataset.id);
+        if (entry) el.replaceWith(card(entry));
+      }
+    }
   }
   function rebuildView(keepView, scopePath = S.scope) {
     S.shown = S.hidden.size ? S.items.filter(it => !S.hidden.has(it.ext)) : S.items;
@@ -686,8 +757,31 @@ export async function mount(root, parts) {
       if (l.id === S.lib) navigate('library', j.active);
     } catch (e) { toastError('Could not remove', e); }
   }
-  async function startIndex(id, force = false) {
-    try { state.jobs[id] = await post('/api/index', { id, force }); paintBanner(); pokeWatcher(); } catch (e) { toastError('Could not start indexing', e); }
+  async function startIndex(id, force = false, retry = false) {
+    try { state.jobs[id] = await post('/api/index', { id, force, retry }); paintBanner(); pokeWatcher(); } catch (e) { toastError('Could not start indexing', e); }
+  }
+
+  // ---------------------------------------------------------------- files that could not be scanned
+  const failedItems = () => S.items.filter(it => it.error);
+  function showFailed() {
+    const list = h('ul.fail-list');
+    const m = modal({
+      title: 'Files that could not be scanned', size: 'wide', body: h('div', h('p.hint',
+        'These files have no cover. Scans skip them until the files change; try again after replacing one or updating ffmpeg.'), list),
+      actions: [{ label: 'Close', left: true, value: false },
+        { label: 'Try again', primary: true, onClick: () => startIndex(S.lib, false, true) }],
+    });
+    const paint = () => {
+      const items = failedItems().sort((a, b) => collator.compare(a.key, b.key));
+      if (!items.length) { fill(list, h('li.fail-row.muted', 'Every file has been scanned.')); return; }
+      fill(list, items.map(it => h('li.fail-row',
+        h('div.grow', h('div.fail-name', it.name), h('div.fail-dir.muted', it.dir || 'Top level'),
+          h('div.fail-why', failReason(it.error)), h('div.fail-raw.mono', it.error)),
+        h('div.fail-actions',
+          canReveal() ? h('button.btn.small', { type: 'button', onclick: () => showInFolder(it) }, revealLabel()) : null,
+          h('button.btn.small', { type: 'button', onclick: () => { m.close(); openLibraryAction('reveal', { lib: S.lib, dir: it.dir, id: it.id }); } }, 'Show in library')))));
+    };
+    paint();
   }
 
   // ---------------------------------------------------------------- add a library
@@ -756,11 +850,16 @@ export async function mount(root, parts) {
       msg = info.updated ? 'No videos were found here.' : 'This library hasn’t been scanned yet.';
       detail = info.updated ? 'Add videos to the folder, then scan again.' : 'A scan finds the videos and makes a cover for each.'; act = info.updated ? 'Scan again' : 'Scan for videos';
     } else if (pending) { msg = `${plural(pending, 'video')} without a cover yet.`; act = 'Make covers'; }
+    let failed = 0;
+    if (!msg && !running(job) && (failed = failedItems().length)) {
+      msg = `${plural(failed, 'file')} could not be scanned.`; detail = 'They have no cover. See why, then try again once they are fixed.'; kind = 'warn';
+    }
     banner.hidden = !msg;
     banner.className = 'banner lib-banner ' + kind;
     fill(banner, h('div.grow', h('strong', msg), detail ? h('div.banner-detail', detail) : null),
       edit ? h('button.btn', { type: 'button', onclick: () => manageLibraries() }, 'Edit library…') : null,
-      act ? h('button.btn', { type: 'button', class: kind ? '' : 'primary', onclick: () => startIndex(S.lib) }, act) : null);
+      act ? h('button.btn', { type: 'button', class: kind ? '' : 'primary', onclick: () => startIndex(S.lib) }, act) : null,
+      failed ? h('button.btn', { type: 'button', onclick: () => showFailed() }, 'See which') : null);
     fill(warnings, (info.warnings || []).map(w => h('li', w)));
     warnings.hidden = !warnings.children.length;
   }
@@ -806,11 +905,14 @@ export async function mount(root, parts) {
     const finished = running(before) && !running(now);
     if (finished || (running(now) && now.state === 'indexing' && Date.now() - lastRefresh > 8000)) {
       lastRefresh = Date.now();
-      loadLibrary(true).catch(() => {});
+      refreshLibrary(finished).catch(() => loadLibrary(true).catch(() => {}));
     }
     if (anyFinished) loadLibraries().catch(() => {});  // a finished run changes a library's item count and indexed time
     paintBanner();
-    if (finished && now.state === 'done') toast('Scan finished: every cover is up to date', { kind: 'ok' });
+    if (finished && now.state === 'done') {
+      if (now.errors) toast(`Scan finished. ${plural(now.errors, 'file')} could not be scanned.`, { kind: 'error', ms: 8000, action: { label: 'See which', run: showFailed } });
+      else toast('Scan finished: every cover is up to date', { kind: 'ok' });
+    }
   }));
 
   // ---------------------------------------------------------------- type filter
@@ -879,7 +981,7 @@ export async function mount(root, parts) {
     const cover = e.target.closest('.cover');
     if (!cover) return stopScrub();
     const it = S.byId.get(cover.closest('.card').dataset.id);
-    if (!it || it.frames < 2) return;
+    if (!it || !(it.frames > 1)) return; // no frames: the field is left out
     if (!scrubbing || scrubbing.cover !== cover) {
       stopScrub();
       scrubbing = { cover, it, idx: -1 };

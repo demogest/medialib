@@ -55,13 +55,14 @@ Every release lists its files and has a `SHA256SUMS` to check them against (`sha
 
 ## What's in it
 
-**Home**: what you played lately and what is new in every library, one click from playing, and each library as a tile of its newest covers. Until there is a library, it is the setup guide above.
+**Home**: what you played lately and what is new in every library, one click from playing, and each library as a tile of its newest covers. *Recently added* means new to medialib: a file copied in with its old date kept still shows up there, and what arrived since your last visit is marked *New*. Until there is a library, it is the setup guide above.
 
 **Library**
 - Folders as cards with their own covers, or every video grouped by folder (*All videos*); a folder tree; sort by name, date, size or length. **Play all**, **Shuffle**, or save a folder as a playlist.
 - Five real keyframes per video; hover a cover to scrub through them. medialib reads an MP4's own sample index and fetches only the bytes of the chosen keyframes (about 1 to 4 MB per video, even over the network). H.264, HEVC and AV1; other formats fall back to ffmpeg. Scans are incremental and use every core.
 - A library can be a local folder, a NAS share, or a folder in a bucket, read straight through the S3 API.
 - Plays in mpv, mpv.net, VLC, PotPlayer, MPC-HC, MPC-BE, IINA, SMPlayer, Celluloid, Haruna or the system default, whichever are installed, or any other you add in Settings.
+- Subtitle files named after a video (`Film.srt`, `Film.en.ass`, `Film.zh.vtt` next to `Film.mkv`) show as **CC** on its cover. A player opening a video from a bucket gets them too: medialib copies them to this computer and hands them over (mpv, mpv.net, IINA, MPC-HC and MPC-BE take all of them; VLC, PotPlayer and SMPlayer the first). From a folder, players find them by themselves.
 - **Copy link** gives the file's real location: its path on this computer for a local library, a link that works anywhere for a week for a bucket. **Save as playlist…** writes an `.m3u8` of the same links, which any player opens without medialib.
 - Click a file's name (or right-click → **Details**) for all its keyframes (arrow keys step through them), codec, frame rate, sound and full path. **Show in Explorer** (Finder, or the file manager on Linux) opens its folder with the file selected.
 
@@ -113,8 +114,9 @@ or in a container: `docker compose up -d` (see [`docker-compose.yml`](docker-com
 
 - Set **`MEDIALIB_PASSWORD`** (or `"password"` in `config.json`) before opening the server to other computers. Every request then needs it (HTTP Basic, any user name). Without a password, other computers can browse libraries and watch, but cannot touch storage, connections or anything that changes.
 - Serve it over HTTPS, for example behind Caddy or nginx: the password is sent with every request.
-- Playing in an external player and the folder picker act on the computer running the server, so they are for a browser on that computer. From another computer a cover plays in the browser, and **Copy playlist link** hands a folder to your own player.
+- Playing in an external player and the folder picker act on the computer running the server, so they are for a browser on that computer. From another computer or a phone a cover plays in the browser when the browser can play that file. When it cannot (MKV, HEVC and the like), medialib offers **Open in VLC** or **Open in Infuse** on an iPhone or iPad, **Open in VLC** or another app on Android, and a playlist to download elsewhere. **Copy playlist link** hands a whole folder to your own player.
 - New files show up after the next scan. Set **`MEDIALIB_AUTO_INDEX`** (or `"auto_index"`) to a number of minutes and the server scans every library by itself: soon after it starts, then that long after each pass. A library that cannot be reached at the time (a disk that is not plugged in) is skipped, not marked as failed. Without a server running, `medialib index --all` from cron or a scheduled task does the same once.
+- A scan does the newest files first. A file ffmpeg cannot read is listed under **N files could not be scanned → See which**, with the reason; scans leave it alone until the file changes or ffmpeg is updated. **Try again** there (or `medialib index --retry`) tries those files once more.
 - `MEDIALIB_HOST`, `MEDIALIB_PORT`, `MEDIALIB_HOME` and `MEDIALIB_LOG=1` (a log line per request) are read from the environment, which is how the container is configured. `GET /healthz` answers `ok` without a password.
 
 ### Command line

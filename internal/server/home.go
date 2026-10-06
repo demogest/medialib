@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"io/fs"
@@ -111,16 +112,17 @@ func (a *App) home(c *Ctx) (any, error) {
 			}
 		}
 	}
-	// The newest files of all libraries: a bounded selection, not a sort of everything.
+	// The files medialib found last, over all libraries: a bounded selection, not a sort of everything. When a file was
+	// found counts, not its own time: a file copied with its date kept is new here too.
 	added := make([]homeItem, 0, homeRows+1)
 	for id, snap := range snaps {
 		for i := range snap.Data.Items {
 			it := &snap.Data.Items[i]
-			if len(added) == homeRows && it.MTime <= added[homeRows-1].MTime {
+			if len(added) == homeRows && addedAt(it) <= addedAt(&added[homeRows-1].Item) {
 				continue
 			}
 			added = append(added, homeItem{Lib: id, LibName: names[id], Item: *it})
-			sort.SliceStable(added, func(i, j int) bool { return added[i].MTime > added[j].MTime })
+			sort.SliceStable(added, func(i, j int) bool { return addedAt(&added[i].Item) > addedAt(&added[j].Item) })
 			if len(added) > homeRows {
 				added = added[:homeRows]
 			}
@@ -128,6 +130,9 @@ func (a *App) home(c *Ctx) (any, error) {
 	}
 	return map[string]any{"played": played, "added": added}, nil
 }
+
+// addedAt is when a scan first found a file; an index from before that was kept has only the file's own time.
+func addedAt(it *media.Item) string { return cmp.Or(it.Added, it.MTime) }
 
 // ---------------------------------------------------------------- first run
 

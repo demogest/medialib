@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -265,7 +266,7 @@ func trimRight(s string, c byte) string {
 // ---------------------------------------------------------------- indexing jobs
 
 // StartIndex begins indexing a library in the background (or returns the run already going).
-func (a *App) StartIndex(lib config.Library, force bool) *media.Job {
+func (a *App) StartIndex(lib config.Library, opt media.Options) *media.Job {
 	a.mu.Lock()
 	if j := a.jobs[lib.ID]; j != nil && media.Running(j.Snapshot().State) {
 		a.mu.Unlock()
@@ -282,7 +283,7 @@ func (a *App) StartIndex(lib config.Library, force bool) *media.Job {
 	a.mu.Unlock()
 	go func() {
 		defer job.Finish()
-		if err := a.Indexer.Run(context.Background(), lib, media.Options{Force: force}, job); err != nil {
+		if err := a.Indexer.Run(context.Background(), lib, opt, job); err != nil {
 			job.Fail(err)
 		}
 	}()
@@ -331,7 +332,7 @@ func (a *App) AutoIndex(ctx context.Context, every time.Duration) {
 				continue
 			}
 			select {
-			case <-a.StartIndex(lib, false).Done():
+			case <-a.StartIndex(lib, media.Options{}).Done():
 			case <-ctx.Done():
 				return
 			}
@@ -428,10 +429,50 @@ func (a *App) Play(lib config.Library, playerID string, recs []*media.Item) (str
 			}
 			entries = append(entries, players.Entry{Target: path, Name: r.Name, Duration: r.Duration})
 		} else {
-			entries = append(entries, players.Entry{Target: mediaURL(a.selfHost(), lib, r), Name: r.Name, Duration: r.Duration})
+			e := players.Entry{Target: mediaURL(a.selfHost(), lib, r), Name: r.Name, Duration: r.Duration}
+			if len(recs) == 1 {
+				e.Subs = a.fetchSubs(lib, r)
+			}
+			entries = append(entries, e)
 		}
 	}
 	return a.Launch(playerID, entries)
+}
+
+// fetchSubs copies the subtitle files of an item in a bucket to this computer, for a player that is handed the
+// video as a URL: it looks for subtitles next to a file it opens by path, never next to a URL. A subtitle that cannot
+// be fetched is left out; the video plays all the same.
+func (a *App) fetchSubs(lib config.Library, rec *media.Item) []string {
+	if len(rec.Subs) == 0 {
+		return nil
+	}
+	dir := filepath.Join(a.Cfg.CacheDir(), "subs", lib.ID, rec.ID)
+	_ = os.RemoveAll(dir)
+	if os.MkdirAll(dir, 0o755) != nil {
+		return nil
+	}
+	client := &http.Client{Timeout: 20 * time.Second}
+	var paths []string
+	for _, name := range rec.Subs {
+		u, err := media.Presign(a.Cfg, a.Clients, lib, rec.SubKey(name), time.Hour)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Get(u)
+		if err != nil {
+			continue
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+		resp.Body.Close()
+		if err != nil || resp.StatusCode != http.StatusOK {
+			continue
+		}
+		p := filepath.Join(dir, filepath.Base(filepath.FromSlash(name)))
+		if os.WriteFile(p, body, 0o644) == nil {
+			paths = append(paths, p)
+		}
+	}
+	return paths
 }
 
 // Launch opens entries in a player: one directly, several as a playlist.

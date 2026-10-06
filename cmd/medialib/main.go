@@ -18,7 +18,7 @@ const usage = `Media library and object-storage browser.
 
     medialib serve [--port 8766] [--host 127.0.0.1] [--no-browser]
     medialib desktop                                              the UI in its own window
-    medialib index [--library ID | --all] [--limit N] [--workers 8] [--force]
+    medialib index [--library ID | --all] [--limit N] [--workers 8] [--force] [--retry]
     medialib compact [--library ID]                               convert older thumbnails to AVIF or WebP (smaller)
     medialib add PATH [--name NAME]                               add a local folder (disk or NAS share)
     medialib libraries                                            list the libraries

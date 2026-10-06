@@ -13,7 +13,9 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +59,7 @@ func (a *App) Handler(web fs.FS) http.Handler {
 	def("GET /api/players", open, func(c *Ctx) (any, error) { return a.playerList(), nil })
 	def("GET /api/playlist.m3u8", open, a.playlist)
 	def("GET /media/{rest...}", open, a.media)
+	def("GET /subs/{lib}/{id}/{name}", open, a.subtitle)
 	def("POST /api/play", machine, a.play)
 	def("POST /api/reveal", machine, a.reveal)
 	def("POST /api/libraries", private, a.addLibrary)
@@ -114,7 +117,7 @@ func (a *App) Handler(web fs.FS) http.Handler {
 		if err != nil {
 			return nil, err
 		}
-		return a.StartIndex(lib, b.Bool("force")).Snapshot(), nil
+		return a.StartIndex(lib, media.Options{Force: b.Bool("force"), Retry: b.Bool("retry")}).Snapshot(), nil
 	})
 	def("POST /api/pick-folder", machine, a.pickFolder)
 
@@ -258,7 +261,7 @@ func (a *App) Handler(web fs.FS) http.Handler {
 		if err != nil {
 			return nil, err
 		}
-		a.StartIndex(lib, false)
+		a.StartIndex(lib, media.Options{})
 		d, _ := a.Describe(lib)
 		return d, nil
 	})
@@ -383,6 +386,16 @@ func (a *App) getLibrary(c *Ctx) (any, error) {
 		return nil, errors.New("the library index could not be read")
 	}
 	d["warnings"] = snap.Data.Warnings
+	d["version"] = snap.Version
+	// A page that has a version already gets only what changed since: while a scan runs, it asks every few seconds,
+	// and a whole big library each time would be megabytes.
+	if since := c.Arg("since"); since != "" {
+		if changed, removed, ok := snap.Since(since); ok {
+			d["changed"], d["removed"] = changed, removed
+			delete(d, "items") // the count from Describe: a full answer puts the items there
+			return d, nil
+		}
+	}
 	d["items"] = snap.ItemsJSON()
 	return d, nil
 }
@@ -422,7 +435,7 @@ func (a *App) updateLibrary(c *Ctx) (any, error) {
 	a.dropStore(id)
 	a.clearLinks()
 	if moved {
-		a.StartIndex(lib, false) // its old index describes another place
+		a.StartIndex(lib, media.Options{}) // its old index describes another place
 	}
 	d, _ := a.Describe(lib)
 	d["moved"] = moved
@@ -517,6 +530,36 @@ func (a *App) media(c *Ctx) (any, error) {
 		return nil, nil
 	}
 	writeText(c.W, 404, "unknown media id")
+	return nil, nil
+}
+
+// subtitle serves one of an item's subtitle files: from the folder, or by a link into the bucket. A player on a phone
+// or another computer gets it this way.
+func (a *App) subtitle(c *Ctx) (any, error) {
+	lib, err := c.Library(c.P("lib"))
+	if err != nil {
+		return nil, err
+	}
+	snap, err := a.store(lib).Get()
+	if err != nil {
+		return nil, err
+	}
+	rec, ok := snap.ByID[c.P("id")]
+	if !ok || !slices.Contains(rec.Subs, c.P("name")) {
+		writeText(c.W, 404, "no such subtitle file")
+		return nil, nil
+	}
+	key := rec.SubKey(c.P("name"))
+	if lib.Type == "local" {
+		return nil, serveLocalFile(c, filepath.Join(config.LocalRoot(lib), filepath.FromSlash(key)))
+	}
+	target, err := media.Presign(a.Cfg, a.Clients, lib, key, 24*time.Hour)
+	if err != nil {
+		writeText(c.W, 502, err.Error())
+		return nil, nil
+	}
+	c.W.Header().Set("Cache-Control", "no-store")
+	http.Redirect(c.W, c.R, target, http.StatusFound)
 	return nil, nil
 }
 

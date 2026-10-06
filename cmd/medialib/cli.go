@@ -86,6 +86,7 @@ func cmdIndex(cfg *config.Config, args []string) error {
 	workers := fs.Int("workers", 0, "files indexed at once")
 	limit := fs.Int("limit", 0, "index at most N new/changed files")
 	force := fs.Bool("force", false, "re-index everything")
+	retry := fs.Bool("retry", false, "try files that failed before again")
 	if _, err := parse(fs, args); err != nil {
 		return err
 	}
@@ -115,7 +116,7 @@ func cmdIndex(cfg *config.Config, args []string) error {
 	var failed []string
 	for _, lib := range libs {
 		fmt.Printf("Library: %s [%s]\n", lib.Name, lib.ID)
-		err := ix.Run(ctx, lib, media.Options{Workers: *workers, Limit: *limit, Force: *force}, printer{})
+		err := ix.Run(ctx, lib, media.Options{Workers: *workers, Limit: *limit, Force: *force, Retry: *retry}, printer{})
 		if ctx.Err() != nil {
 			return err
 		}

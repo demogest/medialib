@@ -388,3 +388,92 @@ func TestRevealShowsALocalFileOnThisComputerOnly(t *testing.T) {
 		t.Errorf("revealed %v", shown)
 	}
 }
+
+func TestLibraryAnswersWithWhatChanged(t *testing.T) {
+	e := setup(t, false)
+	lib, _ := e.cfg.Library("videos")
+	mk := func(name string) media.Item {
+		return media.NewItem(name, name, "", "video", 1, "2026-01-01T00:00:00Z")
+	}
+	a, b, c := mk("a.mp4"), mk("b.mp4"), mk("c.mp4")
+	if _, err := media.SaveLibrary(e.cfg, lib, map[string]media.Item{a.ID: a, b.ID: b}, nil); err != nil {
+		t.Fatal(err)
+	}
+	first := decode(t, e.do("GET", "/api/library?lib=videos", ""))
+	v1, _ := first["version"].(string)
+	if v1 == "" || len(first["items"].([]any)) != 2 {
+		t.Fatalf("full answer: %v", first)
+	}
+	// a gets its covers, b goes, c arrives
+	a.Frames, a.Indexed = 5, true
+	if _, err := media.SaveLibrary(e.cfg, lib, map[string]media.Item{a.ID: a, c.ID: c}, nil); err != nil {
+		t.Fatal(err)
+	}
+	delta := decode(t, e.do("GET", "/api/library?lib=videos&since="+url.QueryEscape(v1), ""))
+	changed, removed := delta["changed"].([]any), delta["removed"].([]any)
+	names := map[any]bool{}
+	for _, x := range changed {
+		names[x.(map[string]any)["name"]] = true
+	}
+	if delta["items"] != nil || len(changed) != 2 || !names["a.mp4"] || !names["c.mp4"] || len(removed) != 1 || removed[0] != b.ID || delta["version"] == v1 {
+		t.Fatalf("delta: %v", delta)
+	}
+	// Nothing new since then: an empty answer, not the library.
+	again := decode(t, e.do("GET", "/api/library?lib=videos&since="+url.QueryEscape(delta["version"].(string)), ""))
+	if len(again["changed"].([]any)) != 0 || len(again["removed"].([]any)) != 0 {
+		t.Errorf("no change: %v", again)
+	}
+	// A version this server never gave out (it restarted): everything.
+	if full := decode(t, e.do("GET", "/api/library?lib=videos&since=old.3", "")); len(full["items"].([]any)) != 2 || full["changed"] != nil {
+		t.Errorf("unknown version: %v", full)
+	}
+}
+
+func TestSubtitlesAreServedAndFetchedForThePlayer(t *testing.T) {
+	e := setup(t, false)
+	lib, _ := e.cfg.Library("videos")
+	root := config.LocalRoot(lib)
+	if err := os.WriteFile(filepath.Join(root, "Film.en.srt"), []byte("1\n00:00:01,000 --> 00:00:02,000\nHi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	it := media.NewItem("Film.mkv", "Film.mkv", "", "video", 1, "2026-01-01T00:00:00Z")
+	it.Subs = []string{"Film.en.srt"}
+	if _, err := media.SaveLibrary(e.cfg, lib, map[string]media.Item{it.ID: it}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do("GET", "/subs/videos/"+it.ID+"/Film.en.srt", "", remote) // a phone on the network may load it
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Hi") || rec.Header().Get("Content-Security-Policy") != "sandbox" {
+		t.Errorf("local subtitle: %d %q %v", rec.Code, rec.Body.String(), rec.Header())
+	}
+	if rec := e.do("GET", "/subs/videos/"+it.ID+"/..%2Fsecret.srt", ""); rec.Code != 404 {
+		t.Errorf("a name that is not one of its subtitles: %d", rec.Code)
+	}
+
+	// A bucket library: the player gets a copy on this computer, since it would not look next to a URL.
+	bucket := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/media/films/Film.zh.srt" {
+			_, _ = io.WriteString(w, "zh subtitles")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer bucket.Close()
+	conn, err := e.cfg.AddConnection(config.ConnectionForm{Name: strPtr("Store"), Provider: strPtr("minio"), Endpoint: strPtr(bucket.URL),
+		AccessKey: strPtr("AKIAEXAMPLE"), SecretKey: strPtr("secret")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s3lib, err := e.cfg.AddS3Library(conn.ID, "media", "films/", "Films")
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj := media.NewItem("films/Film.mkv", "Film.mkv", "", "video", 1, "2026-01-01T00:00:00Z")
+	obj.Subs = []string{"Film.zh.srt", "Film.gone.srt"}
+	paths := e.app.fetchSubs(s3lib, &obj)
+	if len(paths) != 1 || filepath.Base(paths[0]) != "Film.zh.srt" {
+		t.Fatalf("fetched: %v", paths)
+	}
+	if b, _ := os.ReadFile(paths[0]); string(b) != "zh subtitles" {
+		t.Errorf("content: %q", b)
+	}
+}

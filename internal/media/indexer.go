@@ -1,10 +1,14 @@
 package media
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -101,6 +105,7 @@ type Options struct {
 	Workers int
 	Limit   int
 	Force   bool
+	Retry   bool // try the files that failed before again (Force does too)
 }
 
 // Indexer brings libraries up to date.
@@ -156,6 +161,9 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 	for _, w := range warnings {
 		rep.Line("Warning: " + w)
 	}
+	if st, ok := source.(Subtitler); ok {
+		attachSubs(listed, st.Subtitles())
+	}
 	prevData, err := LoadLibrary(ix.Cfg, lib)
 	if err != nil {
 		return err
@@ -164,31 +172,78 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 	for _, r := range prevData.Items {
 		old[r.ID] = r
 	}
+	stamp := tools.Stamp()
+	// When each file was first found. The first scan of a library takes the files' own times, so they keep their
+	// order; a file that left the listing hands its time to a new one of the same size and time (it was moved or
+	// renamed, not added).
+	first := prevData.Updated == "" && len(prevData.Items) == 0
+	now := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	inList := make(map[string]bool, len(listed))
+	for _, it := range listed {
+		inList[it.ID] = true
+	}
+	moved := map[string]string{}
+	for _, r := range prevData.Items {
+		if !inList[r.ID] {
+			moved[sizeTime(r)] = cmp.Or(r.Added, r.MTime)
+		}
+	}
 	recs := make(map[string]Item, len(listed))
 	var todo []Item
+	skipped := 0
 	for _, it := range listed {
 		prev, had := old[it.ID]
+		switch a, ok := moved[sizeTime(it)]; {
+		case had:
+			it.Added = cmp.Or(prev.Added, it.MTime) // an index from before first-seen times were kept
+		case first:
+			it.Added = it.MTime
+		case ok:
+			it.Added = a
+		default:
+			it.Added = now
+		}
+		prev.Added, prev.Subs = it.Added, it.Subs // subtitles can come and go while the video stays the same
 		current := had && prev.Ver == it.Ver && prev.Indexed && prev.Error == ""
+		// A file that failed with this same ffmpeg would fail again: leave it until it changes or someone asks.
+		failed := had && prev.Ver == it.Ver && prev.Error != "" && prev.FailedWith == stamp && !opt.Retry
+		if failed && !opt.Force {
+			skipped++
+		}
 		// A still-valid record stays in place until its replacement lands, so Force (and Limit) never blank it.
-		if current {
+		if current || failed {
 			recs[it.ID] = prev
 		} else {
 			recs[it.ID] = it
 		}
-		if opt.Force || !current {
+		if opt.Force || !(current || failed) {
 			todo = append(todo, it)
 		}
 	}
-	fresh := len(listed) - len(todo)
+	fresh := len(listed) - len(todo) - skipped
+	// Newest first: on a first scan of a big library, what was added lately gets its covers in minutes, not last.
+	sort.SliceStable(todo, func(i, j int) bool {
+		if todo[i].MTime != todo[j].MTime {
+			return todo[i].MTime > todo[j].MTime
+		}
+		return todo[i].Key < todo[j].Key
+	})
 	if opt.Limit > 0 && len(todo) > opt.Limit {
 		todo = todo[:opt.Limit]
 	}
-	rep.Plan(len(todo), fmt.Sprintf("%d media files; %d up to date, indexing %d with %d workers", len(listed), fresh, len(todo), workers))
+	line := fmt.Sprintf("%d media files; %d up to date, indexing %d with %d workers", len(listed), fresh, len(todo), workers)
+	if skipped > 0 {
+		line += fmt.Sprintf("; %d that failed before are skipped (--retry tries them again)", skipped)
+	}
+	rep.Plan(len(todo), line)
 	if _, err := SaveLibrary(ix.Cfg, lib, recs, warnings); err != nil {
 		return err
 	}
 
 	started, fetched0, saved := time.Now(), FetchedTotal(), time.Now()
+	// A checkpoint rewrites the whole index: every 3 seconds for a small library, less often for a big one, where a
+	// save takes a while (3 seconds per 10,000 files).
+	every := max(3*time.Second, time.Duration(len(recs))*3*time.Second/10000)
 	type result struct {
 		item Item
 		rec  Item
@@ -214,6 +269,11 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 					}
 					rec = it
 					rec.Indexed, rec.Error = false, msg
+					if !errors.As(err, new(openError)) {
+						rec.FailedWith = stamp
+					}
+				} else if rec.Error != "" {
+					rec.FailedWith = stamp
 				}
 				select {
 				case results <- result{it, rec}:
@@ -242,7 +302,7 @@ func (ix *Indexer) run(ctx context.Context, lib config.Library, opt Options, rep
 		if res.rec.Error != "" {
 			errorsN++
 		}
-		if time.Since(saved) > 3*time.Second { // lets a running UI pick up new covers as they land
+		if time.Since(saved) > every { // lets a running UI pick up new covers as they land
 			_, _ = SaveLibrary(ix.Cfg, lib, recs, warnings) // only a checkpoint: the next one, or the final save, will land
 			saved = time.Now()
 		}
@@ -303,7 +363,7 @@ func indexItem(tools Tools, source Source, thumbs string, item Item) (Item, erro
 	stem := filepath.Join(thumbs, base)
 	reader, err := source.Reader(item)
 	if err != nil {
-		return rec, err
+		return rec, openError{err}
 	}
 	defer reader.Close()
 	var (
@@ -386,6 +446,43 @@ func indexItem(tools Tools, source Source, thumbs string, item Item) (Item, erro
 	}
 	return rec, nil
 }
+
+// openError is a file that could not be opened at all (gone, locked, the network). Unlike a file ffmpeg cannot read,
+// it is tried again on the next scan.
+type openError struct{ error }
+
+func (e openError) Unwrap() error { return e.error }
+
+// attachSubs gives each item the subtitle files in its folder that are named after it: "Film.srt", "Film.en.srt",
+// "Film.forced.ass" for "Film.mkv". Players load those by themselves for a file opened by path, not for a URL.
+func attachSubs(items []Item, subs []string) {
+	if len(subs) == 0 {
+		return
+	}
+	split := func(key string) (dir, name string) {
+		if i := strings.LastIndexAny(key, `/\`); i >= 0 {
+			return key[:i], key[i+1:]
+		}
+		return "", key
+	}
+	byDir := map[string][]string{}
+	for _, k := range subs {
+		d, n := split(k)
+		byDir[d] = append(byDir[d], n)
+	}
+	for i := range items {
+		d, n := split(items[i].Key)
+		stem := strings.ToLower(strings.TrimSuffix(n, filepath.Ext(n))) + "."
+		for _, s := range byDir[d] {
+			if strings.HasPrefix(strings.ToLower(s), stem) {
+				items[i].Subs = append(items[i].Subs, s)
+			}
+		}
+		sort.Strings(items[i].Subs)
+	}
+}
+
+func sizeTime(it Item) string { return strconv.FormatInt(it.Size, 10) + "|" + it.MTime }
 
 // safeIndexItem is indexItem, with a panic in odd media turned into that file's error rather than a crash.
 func safeIndexItem(tools Tools, source Source, thumbs string, item Item) (rec Item, err error) {

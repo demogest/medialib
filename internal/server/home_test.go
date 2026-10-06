@@ -62,6 +62,28 @@ func TestHomeShowsWhatWasPlayedAndWhatIsNew(t *testing.T) {
 	}
 }
 
+func TestRecentlyAddedIsWhenMedialibFoundTheFile(t *testing.T) {
+	e := setup(t, false)
+	lib, _ := e.cfg.Library("videos")
+	recs := map[string]media.Item{}
+	for n := 1; n <= 30; n++ {
+		it := media.NewItem(fmt.Sprintf("clip %02d.mp4", n), fmt.Sprintf("clip %02d.mp4", n), "", "video", 1, fmt.Sprintf("2026-01-%02dT00:00:00Z", n))
+		it.Added = it.MTime
+		recs[it.ID] = it
+	}
+	// Copied in today with its 2019 date kept: new to medialib all the same.
+	copied := media.NewItem("copied.mp4", "copied.mp4", "", "video", 1, "2019-05-01T00:00:00Z")
+	copied.Added = "2026-10-06T00:00:00Z"
+	recs[copied.ID] = copied
+	if _, err := media.SaveLibrary(e.cfg, lib, recs, nil); err != nil {
+		t.Fatal(err)
+	}
+	added := decode(t, e.do("GET", "/api/home", ""))["added"].([]any)
+	if first := added[0].(map[string]any); first["name"] != "copied.mp4" || first["added"] != "2026-10-06T00:00:00Z" {
+		t.Errorf("first in Recently added: %v", first)
+	}
+}
+
 func TestFirstRunSuggestsFoldersWithVideos(t *testing.T) {
 	home := t.TempDir()
 	defer func(f func() []string) { diskRoots = f }(diskRoots)

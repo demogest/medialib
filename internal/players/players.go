@@ -22,6 +22,8 @@ type Player struct {
 	Name     string
 	Path     string
 	TitleArg string   // {title} is replaced by the file name when a single item is opened
+	SubArgs  []string // how to hand it a subtitle file: {sub} is replaced by its path
+	SubOnce  bool     // it takes only one subtitle file
 	Args     []string // extra arguments, put before the file (from "args" in config.json)
 	Custom   bool     // added by hand ("players" in config.json) rather than found on this computer
 	Hidden   bool     // found on this computer, but removed from the list ("hidden_players")
@@ -41,30 +43,32 @@ type known struct {
 	exes     []string   // Windows: program names registered under App Paths by their installers
 	reg      []regValue // Windows: other registry values that hold the program's path
 	titleArg string
+	subArgs  []string
+	subOnce  bool
 }
 
 // knownPlayers are looked for on every computer, in this order (the first one found is the default until the user
 // picks one).
 var knownPlayers = []known{
-	{id: "mpv", name: "mpv", titleArg: "--force-media-title={title}", exes: []string{"mpv.exe"}, paths: []string{
+	{id: "mpv", name: "mpv", titleArg: "--force-media-title={title}", subArgs: []string{"--sub-file={sub}"}, exes: []string{"mpv.exe"}, paths: []string{
 		`%USERPROFILE%\scoop\apps\mpv\current\mpv.exe`, `%ProgramFiles%\mpv\mpv.exe`, `%ProgramData%\chocolatey\bin\mpv.exe`,
 		"mpv", "/Applications/mpv.app/Contents/MacOS/mpv"}},
-	{id: "mpvnet", name: "mpv.net", titleArg: "--force-media-title={title}", exes: []string{"mpvnet.exe"}, paths: []string{
+	{id: "mpvnet", name: "mpv.net", titleArg: "--force-media-title={title}", subArgs: []string{"--sub-file={sub}"}, exes: []string{"mpvnet.exe"}, paths: []string{
 		`%ProgramFiles%\mpv.net\mpvnet.exe`, `%LOCALAPPDATA%\Programs\mpv.net\mpvnet.exe`, "mpvnet"}},
-	{id: "iina", name: "IINA", titleArg: "--mpv-force-media-title={title}", paths: []string{"/Applications/IINA.app/Contents/MacOS/iina-cli"}},
-	{id: "potplayer", name: "PotPlayer", exes: []string{"PotPlayerMini64.exe", "PotPlayerMini.exe"},
+	{id: "iina", name: "IINA", titleArg: "--mpv-force-media-title={title}", subArgs: []string{"--mpv-sub-file={sub}"}, paths: []string{"/Applications/IINA.app/Contents/MacOS/iina-cli"}},
+	{id: "potplayer", name: "PotPlayer", subArgs: []string{"/sub={sub}"}, subOnce: true, exes: []string{"PotPlayerMini64.exe", "PotPlayerMini.exe"},
 		reg: []regValue{{`Software\DAUM\PotPlayer64`, "ProgramPath"}, {`Software\DAUM\PotPlayer`, "ProgramPath"}},
 		paths: []string{`%ProgramFiles%\DAUM\PotPlayer\PotPlayerMini64.exe`, `%ProgramFiles(x86)%\DAUM\PotPlayer\PotPlayerMini.exe`,
 			`%USERPROFILE%\scoop\apps\potplayer\current\PotPlayerMini64.exe`}},
-	{id: "vlc", name: "VLC", titleArg: "--meta-title={title}", exes: []string{"vlc.exe"}, reg: []regValue{{`SOFTWARE\VideoLAN\VLC`, ""}},
+	{id: "vlc", name: "VLC", titleArg: "--meta-title={title}", subArgs: []string{"--sub-file={sub}"}, subOnce: true, exes: []string{"vlc.exe"}, reg: []regValue{{`SOFTWARE\VideoLAN\VLC`, ""}},
 		paths: []string{`%ProgramFiles%\VideoLAN\VLC\vlc.exe`, `%ProgramFiles(x86)%\VideoLAN\VLC\vlc.exe`,
 			`%USERPROFILE%\scoop\apps\vlc\current\vlc.exe`, "vlc", "/Applications/VLC.app/Contents/MacOS/VLC"}},
-	{id: "mpc-hc", name: "MPC-HC", exes: []string{"mpc-hc64.exe", "mpc-hc.exe"}, reg: []regValue{{`Software\MPC-HC\MPC-HC`, "ExePath"}},
+	{id: "mpc-hc", name: "MPC-HC", subArgs: []string{"/sub", "{sub}"}, exes: []string{"mpc-hc64.exe", "mpc-hc.exe"}, reg: []regValue{{`Software\MPC-HC\MPC-HC`, "ExePath"}},
 		paths: []string{`%ProgramFiles%\MPC-HC\mpc-hc64.exe`, `%ProgramFiles(x86)%\MPC-HC\mpc-hc.exe`,
 			`%ProgramFiles%\K-Lite Codec Pack\MPC-HC64\mpc-hc64.exe`, `%ProgramFiles(x86)%\K-Lite Codec Pack\MPC-HC64\mpc-hc64.exe`}},
-	{id: "mpc-be", name: "MPC-BE", exes: []string{"mpc-be64.exe", "mpc-be.exe"}, reg: []regValue{{`Software\MPC-BE`, "ExePath"}},
+	{id: "mpc-be", name: "MPC-BE", subArgs: []string{"/sub", "{sub}"}, exes: []string{"mpc-be64.exe", "mpc-be.exe"}, reg: []regValue{{`Software\MPC-BE`, "ExePath"}},
 		paths: []string{`%ProgramFiles%\MPC-BE x64\mpc-be64.exe`, `%ProgramFiles%\MPC-BE\mpc-be64.exe`, `%ProgramFiles(x86)%\MPC-BE\mpc-be.exe`}},
-	{id: "smplayer", name: "SMPlayer", exes: []string{"smplayer.exe"},
+	{id: "smplayer", name: "SMPlayer", subArgs: []string{"-sub", "{sub}"}, subOnce: true, exes: []string{"smplayer.exe"},
 		paths: []string{`%ProgramFiles%\SMPlayer\smplayer.exe`, "smplayer", "/Applications/SMPlayer.app/Contents/MacOS/SMPlayer"}},
 	{id: "celluloid", name: "Celluloid", paths: []string{"celluloid"}},
 	{id: "haruna", name: "Haruna", paths: []string{"haruna"}},
@@ -129,7 +133,8 @@ func Detect(extra []config.Player, hidden []string) []Player {
 		}
 		if path := k.find(); path != "" && !seen[norm(path)] {
 			seen[norm(path)] = true
-			out = append(out, Player{ID: k.id, Name: k.name, Path: path, TitleArg: k.titleArg, Hidden: slices.Contains(hidden, k.id)})
+			out = append(out, Player{ID: k.id, Name: k.name, Path: path, TitleArg: k.titleArg, SubArgs: k.subArgs, SubOnce: k.subOnce,
+				Hidden: slices.Contains(hidden, k.id)})
 		}
 	}
 	return append(out, Player{ID: "system", Name: "System default"})
@@ -151,6 +156,7 @@ type Entry struct {
 	Target   string
 	Name     string
 	Duration float64
+	Subs     []string // subtitle files on this computer, for a player that is handed one entry
 }
 
 // M3U writes entries as an extended M3U playlist.
@@ -200,6 +206,9 @@ func Launch(list []Player, id string, entries []Entry, playlistFile string) (str
 		if len(entries) == 1 && player.TitleArg != "" {
 			args = append(args, strings.ReplaceAll(player.TitleArg, "{title}", entries[0].Name))
 		}
+		if len(entries) == 1 {
+			args = append(args, SubArgs(player, entries[0].Subs)...)
+		}
 		cmd = exec.Command(player.Path, append(args, target)...)
 		proc.NoConsole(cmd) // not Hide: that would start the player's own window hidden
 	}
@@ -216,6 +225,20 @@ func Launch(list []Player, id string, entries []Entry, playlistFile string) (str
 	}
 	go bringToFront(cmd, pid, player.Path, before, 20*time.Second)
 	return player.Name, nil
+}
+
+// SubArgs are the arguments that hand a player subtitle files (none for a player that cannot be told).
+func SubArgs(player Player, subs []string) []string {
+	if player.SubOnce && len(subs) > 1 {
+		subs = subs[:1]
+	}
+	var args []string
+	for _, s := range subs {
+		for _, a := range player.SubArgs {
+			args = append(args, strings.ReplaceAll(a, "{sub}", s))
+		}
+	}
+	return args
 }
 
 // openDefault opens a file or URL with the system's handler.
