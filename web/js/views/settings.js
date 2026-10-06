@@ -88,9 +88,13 @@ export async function mount(root, parts = []) {
       rows.push(row(t('settings.updateRestarting', { version: upd.latest }), t('settings.updateRestartingHint'), setBar(100)));
     } else if (upd.ready) {
       rows.push(row(t('settings.updateReady', { version: upd.latest }), t('settings.updateReadyHint'),
+        upd.notes ? btn(t('settings.whatsNew'), () => notes(upd)) : null,
         here() ? btn(t('settings.restartNow'), () => install(), { primary: true, icon: 'refresh' }) : null));
     } else if (upd.available) {
-      rows.push(row(t('settings.updateAvailable', { version: upd.latest }), upd.can_install ? (upd.published ? t('settings.youHaveReleased', { version: upd.current, when: ago(upd.published) }) : t('settings.youHave', { version: upd.current })) : upd.why,
+      // A download that failed leaves the update on offer: say why it stopped, and Update now tries again.
+      const hint = upd.state === 'error' && upd.error ? upd.error
+        : upd.can_install ? (upd.published ? t('settings.youHaveReleased', { version: upd.current, when: ago(upd.published) }) : t('settings.youHave', { version: upd.current })) : upd.why;
+      rows.push(row(t('settings.updateAvailable', { version: upd.latest }), hint,
         upd.notes ? btn(t('settings.whatsNew'), () => notes(upd)) : null,
         upd.can_install && here() ? btn(t('settings.updateNow'), () => install(), { primary: true, icon: 'download' })
           : upd.page ? h('a.btn.small', { href: upd.page, target: '_blank', rel: 'noopener' }, icon('external', 'sm'), t('settings.download')) : null));
@@ -98,7 +102,6 @@ export async function mount(root, parts = []) {
       rows.push(row(t('settings.couldNotCheck'), upd.error, btn(t('common.retry'), () => check())));
     } else {
       rows.push(row(upd.latest ? t('settings.upToDate') : t('settings.updates'), upd.checked ? t('settings.versionChecked', { version: upd.current, when: ago(upd.checked) }) : t('settings.version', { version: upd.current }),
-        upd.latest && upd.notes ? btn(t('settings.whatsNew'), () => notes(upd)) : null,
         btn(t('settings.checkNow'), () => check(), { icon: 'refresh' })));
     }
     rows.push(row(t('settings.autoUpdates'), info.mode === 'desktop' ? t('settings.autoUpdatesDesktopHint')
@@ -129,7 +132,7 @@ export async function mount(root, parts = []) {
       if (upd.state === 'error') { clearInterval(poll); installing = false; render(); toastError(t('settings.updateFailed'), upd.error); }
     }, 250);
   }
-  // What changed in every version since this one (or in this one, when it is the latest), newest first.
+  // What changed in every version since this one, newest first.
   function notes(u) {
     const list = u.releases && u.releases.length ? u.releases : [{ version: u.latest, notes: u.notes, published: u.published, page: u.page }];
     const title = list.length > 1 ? t('settings.whatsNewSince', { version: u.current }) : t('settings.whatsNewIn', { version: list[0].version });
@@ -140,7 +143,7 @@ export async function mount(root, parts = []) {
       return els.length ? els : h('p.muted', t('settings.noNotes'));
     };
     modal({ title, size: 'wide', body: h('div.notes', list.map(r => h('section.notes-release',
-      h('h2.notes-version', t('settings.version', { version: r.version }), r.version === u.current ? h('span.notes-when', t('settings.notesYours')) : null,
+      h('h2.notes-version', t('settings.version', { version: r.version }),
         r.published ? h('span.notes-when', t('settings.notesReleased', { when: ago(r.published) })) : null),
       body(r)))),
       actions: [page ? { label: t('settings.openOnGitHub'), left: true, onClick: () => window.open(page, '_blank') } : null,

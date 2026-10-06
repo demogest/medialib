@@ -659,7 +659,6 @@
   "settings.whatsNewSince": "What’s new since {version}",
   "settings.whatsNewIn": "What’s new in {version}",
   "settings.noNotes": "This release has no notes.",
-  "settings.notesYours": " · the one you have",
   "settings.notesReleased": " · released {when}",
   "settings.openOnGitHub": "Open on GitHub",
   "settings.updateTo": "Update to {version}",

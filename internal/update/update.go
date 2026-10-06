@@ -70,9 +70,9 @@ type Status struct {
 	Latest     string    `json:"latest,omitempty"`
 	Available  bool      `json:"available"`           // Latest is newer than Current
 	Page       string    `json:"page,omitempty"`      // the release's page
-	Notes      string    `json:"notes,omitempty"`     // its notes (Markdown)
+	Notes      string    `json:"notes,omitempty"`     // its notes (Markdown), when it is an update
 	Published  string    `json:"published,omitempty"` // when it came out
-	Releases   []Release `json:"releases,omitempty"`  // what changed: every release after Current up to Latest, newest first; Latest alone when there is no update
+	Releases   []Release `json:"releases,omitempty"`  // what an update brings: every release after Current up to Latest, newest first; none when there is no update
 	Asset      string    `json:"asset,omitempty"`     // the download that updates this copy
 	Size       int64     `json:"size,omitempty"`
 	CanInstall bool      `json:"can_install"`   // this copy can update itself to Latest
@@ -182,9 +182,12 @@ func (u *Updater) Check(ctx context.Context, maxAge time.Duration) Status {
 		u.st = Status{State: "error", Error: err.Error(), Checked: u.checked.UTC().Format(time.RFC3339)}
 		return u.statusLocked()
 	}
-	st := Status{State: "idle", Latest: strings.TrimPrefix(rel.Tag, "v"), Page: rel.Page, Notes: rel.Body, Published: rel.Published,
-		Releases: releases, Checked: u.checked.UTC().Format(time.RFC3339)}
+	st := Status{State: "idle", Latest: strings.TrimPrefix(rel.Tag, "v"), Page: rel.Page, Published: rel.Published,
+		Checked: u.checked.UTC().Format(time.RFC3339)}
 	st.Available = Newer(rel.Tag, u.Current)
+	if st.Available { // the notes say what an update brings: none when this copy is the latest
+		st.Notes, st.Releases = rel.Body, releases
+	}
 	u.asset, u.sums, u.kind = nil, nil, ""
 	name, kind := u.assetName(rel.Tag)
 	for i := range rel.Assets {
@@ -258,10 +261,10 @@ func (u *Updater) latest(ctx context.Context) (*release, error) {
 // releases are the notes of every release after this copy's version up to latest, newest first. They are one more
 // request, made only when latest is newer; if it fails, the latest release's notes are all there is.
 func (u *Updater) releases(ctx context.Context, latest *release) []Release {
-	out := []Release{noteOf(latest)}
 	if !Newer(latest.Tag, u.Current) {
-		return out
+		return nil
 	}
+	out := []Release{noteOf(latest)}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", or(u.API, "https://api.github.com")+"/repos/"+Repo+"/releases?per_page=50", nil)

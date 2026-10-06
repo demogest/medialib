@@ -659,7 +659,6 @@
   "settings.whatsNewSince": "自 {version} 以来的新功能",
   "settings.whatsNewIn": "{version} 的新功能",
   "settings.noNotes": "此版本没有更新说明。",
-  "settings.notesYours": " · 当前版本",
   "settings.notesReleased": " · 发布于{when}",
   "settings.openOnGitHub": "在 GitHub 上打开",
   "settings.updateTo": "更新到 {version}",
