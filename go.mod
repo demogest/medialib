@@ -8,8 +8,8 @@ require (
 	github.com/mozillazg/go-pinyin v0.21.0
 	github.com/ncruces/zenity v0.10.15
 	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
-	golang.org/x/image v0.46.0
-	golang.org/x/sys v0.48.0
+	golang.org/x/image v0.47.0
+	golang.org/x/sys v0.49.0
 )
 
 require (
